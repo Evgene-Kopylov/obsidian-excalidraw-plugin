@@ -4305,15 +4305,15 @@ export default class ExcalidrawView extends TextFileView {
       React.createElement(
         WelcomeScreen.Center,
         {},
-        React.createElement(
-          WelcomeScreen.Center.Logo,
-          {},
-          React.createElement(
-            LogoWrapper,
-            {},
-            ICONS.ExcalidrawSword,
-          ),
-        ),
+        // React.createElement(
+        //   WelcomeScreen.Center.Logo,
+        //   {},
+        //   React.createElement(
+        //     LogoWrapper,
+        //     {},
+        //     ICONS.ExcalidrawSword,
+        //   ),
+        // ),
         React.createElement(
           WelcomeScreen.Center.Heading,
           {},
