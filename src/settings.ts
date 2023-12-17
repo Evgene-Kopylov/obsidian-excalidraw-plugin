@@ -520,7 +520,7 @@ export class ExcalidrawSettingTab extends PluginSettingTab {
       .setDesc(fragWithHTML(t("FOLDER_DESC")))
       .addText((text) =>
         text
-          .setPlaceholder("Excalidraw")
+          .setPlaceholder("map")
           .setValue(this.plugin.settings.folder)
           .onChange(async (value) => {
             this.plugin.settings.folder = value;
