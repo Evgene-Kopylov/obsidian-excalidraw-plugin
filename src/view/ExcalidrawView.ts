@@ -5119,7 +5119,19 @@ export default class ExcalidrawView
     const newSuffix = value === defaultPad ? "" : ",padding=" + value;
     const blockref = ef.filenameparts.blockref;
 
-    // Same approach as the markdown reading view: edit the file text directly.
+    // Rebuild the link with the new padding and update the in-memory file first,
+    // so the image renders with the new value regardless of the disk state.
+    const fp = getEmbeddedFilenameParts(ef.linkParts.original);
+    const newRef = fp.linkpartReference.replace(/,padding=\d+$/, "") + newSuffix;
+    const newLink = fp.filepath + newRef + fp.linkpartAlias;
+    ef.resetImage(this.file.path, newLink);
+    this.excalidrawData.setFile(el.fileId, ef);
+
+    // Persist to disk, but suppress the modify-triggered full sync. Without this,
+    // synchronizeWithData can re-parse every embedded file and briefly reload
+    // neighboring embeds (the intermittent "blink").
+    this.clearPreventReloadTimer();
+    this.setPreventReload();
     await this.app.vault.process(this.file, (data: string) => {
       const marker = `${el.fileId}: [[`;
       const lineStart = data.indexOf(marker);
@@ -5145,6 +5157,16 @@ export default class ExcalidrawView
         line.slice(refStart + refMatch[0].length);
 
       return data.substring(0, lineStart) + updatedLine + data.substring(endPos);
+    });
+
+    // Reload only the target image so the canvas reflects the new padding.
+    await new Promise<void>((resolve) => {
+      void this.loadSceneFiles(
+        false,
+        new Set([el.fileId]),
+        resolve,
+        new Set([el.fileId]),
+      );
     });
   }
 
