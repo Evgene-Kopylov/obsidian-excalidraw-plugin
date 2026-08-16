@@ -5229,7 +5229,7 @@ export default class ExcalidrawView
     setStyle(icon, {
       opacity: "0.8",
       left: `${clientLeft - iconWidth - 4}px`,
-      top: `${clientTop - iconHeigh + 4}px`,
+      top: `${clientTop - iconHeigh - iconHeigh / 2}px`,
     });
   }
 
