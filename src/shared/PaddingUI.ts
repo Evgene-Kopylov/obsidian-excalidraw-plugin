@@ -19,6 +19,142 @@ const nthIndexOf = (str: string, search: string, n: number): number => {
   return idx;
 };
 
+const STEPS = [0, 10];
+for (let s = 50; s <= 500; s += 50) STEPS.push(s);
+for (let s = 600; s <= 1000; s += 100) STEPS.push(s);
+for (let s = 1200; s <= 2000; s += 200) STEPS.push(s);
+
+const valueToStep = (v: number): number => {
+  let best = STEPS[0];
+  for (const s of STEPS) {
+    if (Math.abs(s - v) < Math.abs(best - v)) best = s;
+  }
+  return best;
+};
+
+const stepIndex = (v: number): number => STEPS.indexOf(valueToStep(v));
+
+export interface PaddingPopupAnchor {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+/**
+ * Renders the padding slider popup into `doc` next to `anchor`.
+ * Calls `onCommit` (debounced) on value changes, pointer-up, and close.
+ */
+export const openPaddingPopup = (
+  doc: Document,
+  anchor: PaddingPopupAnchor,
+  initialValue: number,
+  onCommit: (value: number) => void | Promise<void>,
+): void => {
+  const existing = doc.querySelector(".ex-pad-popup");
+  if (existing) existing.remove();
+
+  let value = initialValue;
+  let debounceTimer: number;
+
+  const doSave = () => {
+    void onCommit(value);
+  };
+
+  const popup = doc.createElement("div");
+  popup.className = "ex-pad-popup";
+  popup.style.touchAction = "none";
+
+  const label = doc.createElement("span");
+  label.className = "ex-pad-popup-label";
+  label.textContent = String(value);
+
+  const track = doc.createElement("div");
+  track.className = "ex-pad-popup-track";
+  track.style.touchAction = "none";
+
+  const knob = doc.createElement("div");
+  knob.className = "ex-pad-popup-knob";
+
+  const updateKnob = (v: number) => {
+    const idx = stepIndex(v);
+    const pct = idx / (STEPS.length - 1);
+    knob.style.top = (160 - 14) * pct + "px";
+  };
+  updateKnob(value);
+
+  const onValueChange = (v: number) => {
+    value = valueToStep(v);
+    label.textContent = String(value);
+    updateKnob(value);
+    window.clearTimeout(debounceTimer);
+    debounceTimer = window.setTimeout(doSave, 400);
+  };
+
+  let dragging = false;
+  const posToValue = (clientY: number) => {
+    const tr = track.getBoundingClientRect();
+    const pct = (clientY - tr.top) / tr.height;
+    const idx = Math.round(pct * (STEPS.length - 1));
+    return STEPS[Math.max(0, Math.min(STEPS.length - 1, idx))];
+  };
+
+  const onPointerDown = (ev: PointerEvent) => {
+    dragging = true;
+    window.clearTimeout(debounceTimer);
+    onValueChange(posToValue(ev.clientY));
+  };
+  const onPointerMove = (ev: PointerEvent) => {
+    if (!dragging) return;
+    onValueChange(posToValue(ev.clientY));
+  };
+  const onPointerUp = () => {
+    dragging = false;
+    doSave();
+  };
+
+  track.addEventListener("pointerdown", onPointerDown);
+  doc.addEventListener("pointermove", onPointerMove);
+  doc.addEventListener("pointerup", onPointerUp);
+
+  track.appendChild(knob);
+
+  popup.addEventListener(
+    "wheel",
+    (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const idx = stepIndex(value);
+      const next = idx + (ev.deltaY < 0 ? -1 : 1);
+      if (next >= 0 && next < STEPS.length) onValueChange(STEPS[next]);
+    },
+    { passive: false },
+  );
+
+  popup.appendChild(label);
+  popup.appendChild(track);
+  doc.body.appendChild(popup);
+
+  const pr = popup.getBoundingClientRect();
+  const win = doc.defaultView ?? window;
+  popup.style.left =
+    Math.min(anchor.left, win.innerWidth - pr.width - 8) + "px";
+  popup.style.top =
+    Math.min(anchor.bottom + 4, win.innerHeight - pr.height - 8) + "px";
+
+  const close = (ev: MouseEvent) => {
+    if (!popup.contains(ev.target as Node)) {
+      popup.remove();
+      doc.removeEventListener("click", close);
+      doc.removeEventListener("pointermove", onPointerMove);
+      doc.removeEventListener("pointerup", onPointerUp);
+      window.clearTimeout(debounceTimer);
+      doSave();
+    }
+  };
+  setTimeout(() => doc.addEventListener("click", close), 0);
+};
+
 export const wrapWithPaddingPopup = (
   imgDiv: HTMLDivElement,
   src: string,
@@ -61,11 +197,6 @@ export const wrapWithPaddingPopup = (
 
     const doc = wrapper.ownerDocument;
 
-    const existing = mainDocument.querySelector(".ex-pad-popup");
-    if (existing) existing.remove();
-
-    let value = currentPadding;
-    let debounceTimer: number;
     // Match the embed prefix so a plain wikilink to the same block ref isn't targeted.
     let target = `![[${fnameParts.filepath}${fnameParts.linkpartReference}`;
 
@@ -80,7 +211,7 @@ export const wrapWithPaddingPopup = (
     const occIdx = allWrappers.indexOf(wrapper);
     const hasOccurrence = occIdx !== -1;
 
-    const doSave = async () => {
+    const doSave = async (value: number) => {
       const file = plugin.app.workspace.getActiveFile();
       if (!file || !("extension" in file)) return;
       const defaultPad = plugin.settings.exportPaddingSVG;
@@ -118,112 +249,13 @@ export const wrapWithPaddingPopup = (
       });
     };
 
-    const popup = doc.createElement("div");
-    popup.className = "ex-pad-popup";
-    popup.style.touchAction = "none";
-
-    const label = doc.createElement("span");
-    label.className = "ex-pad-popup-label";
-    label.textContent = String(value);
-
-    const track = doc.createElement("div");
-    track.className = "ex-pad-popup-track";
-    track.style.touchAction = "none";
-
-    const knob = doc.createElement("div");
-    knob.className = "ex-pad-popup-knob";
-
-    const STEPS = [0, 10];
-    for (let s = 50; s <= 500; s += 50) STEPS.push(s);
-    for (let s = 600; s <= 1000; s += 100) STEPS.push(s);
-    for (let s = 1200; s <= 2000; s += 200) STEPS.push(s);
-
-    const valueToStep = (v: number) => {
-      let best = STEPS[0];
-      for (const s of STEPS) {
-        if (Math.abs(s - v) < Math.abs(best - v)) best = s;
-      }
-      return best;
-    };
-
-    const stepIndex = (v: number) => STEPS.indexOf(valueToStep(v));
-
-    label.textContent = String(value);
-
-    const updateKnob = (v: number) => {
-      const idx = stepIndex(v);
-      const pct = idx / (STEPS.length - 1);
-      knob.style.top = (160 - 14) * pct + "px";
-    };
-    updateKnob(value);
-
-    const onValueChange = (v: number) => {
-      value = valueToStep(v);
-      label.textContent = String(value);
-      updateKnob(value);
-      window.clearTimeout(debounceTimer);
-      debounceTimer = window.setTimeout(doSave, 400);
-    };
-
-    let dragging = false;
-    const posToValue = (clientY: number) => {
-      const tr = track.getBoundingClientRect();
-      const pct = (clientY - tr.top) / tr.height;
-      const idx = Math.round(pct * (STEPS.length - 1));
-      return STEPS[Math.max(0, Math.min(STEPS.length - 1, idx))];
-    };
-
-    const onPointerDown = (ev: PointerEvent) => {
-      dragging = true;
-      window.clearTimeout(debounceTimer);
-      onValueChange(posToValue(ev.clientY));
-    };
-    const onPointerMove = (ev: PointerEvent) => {
-      if (!dragging) return;
-      onValueChange(posToValue(ev.clientY));
-    };
-    const onPointerUp = () => {
-      dragging = false;
-      doSave();
-    };
-
-    track.addEventListener("pointerdown", onPointerDown);
-    doc.addEventListener("pointermove", onPointerMove);
-    doc.addEventListener("pointerup", onPointerUp);
-
-    track.appendChild(knob);
-
-    popup.addEventListener("wheel", (ev) => {
-      ev.preventDefault();
-      ev.stopPropagation();
-      const idx = stepIndex(value);
-      const next = idx + (ev.deltaY < 0 ? -1 : 1);
-      if (next >= 0 && next < STEPS.length) onValueChange(STEPS[next]);
-    }, { passive: false });
-
-    popup.appendChild(label);
-    popup.appendChild(track);
-    doc.body.appendChild(popup);
-
     const rect = icon.getBoundingClientRect();
-    const pr = popup.getBoundingClientRect();
-    const win = doc.defaultView ?? window;
-    popup.style.left =
-      Math.min(rect.left, win.innerWidth - pr.width - 8) + "px";
-    popup.style.top =
-      Math.min(rect.bottom + 4, win.innerHeight - pr.height - 8) + "px";
-
-    const close = (ev: MouseEvent) => {
-      if (!popup.contains(ev.target as Node)) {
-        popup.remove();
-        doc.removeEventListener("click", close);
-        doc.removeEventListener("pointermove", onPointerMove);
-        doc.removeEventListener("pointerup", onPointerUp);
-        window.clearTimeout(debounceTimer);
-        doSave();
-      }
-    };
-    setTimeout(() => doc.addEventListener("click", close), 0);
+    openPaddingPopup(
+      doc,
+      { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom },
+      currentPadding,
+      doSave,
+    );
   });
 
   wrapper.appendChild(icon);

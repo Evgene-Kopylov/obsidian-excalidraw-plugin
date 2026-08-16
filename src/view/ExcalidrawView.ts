@@ -168,6 +168,7 @@ import { ObsidianMenu } from "./components/menu/ObsidianMenu";
 import { ToolsPanel } from "./components/menu/ToolsPanel";
 import { SelectedElementActionsMenu } from "./components/menu/SelectedElementActionsMenu";
 import { ScriptEngine } from "../shared/Scripts";
+import { openPaddingPopup } from "../shared/PaddingUI";
 import {
   getTextElementAtPointer,
   getImageElementAtPointer,
@@ -395,6 +396,8 @@ export default class ExcalidrawView
   private excalidrawExtensionRenderer: ViewExcalidrawExtensionRenderer;
   public hoverPopover: HoverPopover | null = null;
   private freedrawLastActiveTimestamp: number = 0;
+  private paddingZoomIconEl: HTMLSpanElement | null = null;
+  private hoveredAreaPaddingElementId: string | null = null;
   public exportDialog: ExportDialog | null = null;
   public excalidrawData: ExcalidrawData;
   public excalidrawRoot: ReturnType<Packages["reactDOM"]["createRoot"]> | null =
@@ -4845,6 +4848,7 @@ export default class ExcalidrawView
     pointersMap: Gesture["pointers"];
   }) {
     this.currentPosition = p.pointer;
+    this.updateAreaPaddingHoverIcon();
     if (
       this.hoverPreviewTarget &&
       (Math.abs(this.hoverPoint.x - p.pointer.x) > 50 ||
@@ -5088,6 +5092,143 @@ export default class ExcalidrawView
         this.pendingMarkdownImageDeletionIds.delete(element.id);
       }
     }
+  }
+
+  private openAreaPaddingPopupForElement(
+    el: ExcalidrawImageElement,
+    anchor?: { left: number; top: number; right: number; bottom: number },
+  ) {
+    const ef = this.excalidrawData.getFile(el.fileId);
+    if (!ef?.filenameparts?.hasArearef) {
+      return;
+    }
+    const doc = this.contentEl.ownerDocument;
+    const padding = ef.filenameparts.padding ?? this.plugin.settings.exportPaddingSVG;
+    const rect = anchor ?? { left: 200, top: 200, right: 220, bottom: 220 };
+    openPaddingPopup(doc, rect, padding, (value) => {
+      void this.updateAreaPadding(el, value);
+    });
+  }
+
+  private async updateAreaPadding(el: ExcalidrawImageElement, value: number) {
+    const ef = this.excalidrawData.getFile(el.fileId);
+    if (!ef?.filenameparts?.hasArearef || !this.file) {
+      return;
+    }
+    const defaultPad = this.plugin.settings.exportPaddingSVG;
+    const newSuffix = value === defaultPad ? "" : ",padding=" + value;
+    const blockref = ef.filenameparts.blockref;
+
+    // Same approach as the markdown reading view: edit the file text directly.
+    await this.app.vault.process(this.file, (data: string) => {
+      const marker = `${el.fileId}: [[`;
+      const lineStart = data.indexOf(marker);
+      if (lineStart === -1) {
+        return data;
+      }
+      const lineEnd = data.indexOf("\n", lineStart);
+      const endPos = lineEnd === -1 ? data.length : lineEnd;
+      const line = data.substring(lineStart, endPos);
+
+      const refStart = line.indexOf(`#^area=${blockref}`);
+      if (refStart === -1) {
+        return data;
+      }
+      const refMatch = line.slice(refStart).match(/^#\^area=[^|\]]*/);
+      if (!refMatch) {
+        return data;
+      }
+      const updatedLine =
+        line.slice(0, refStart) +
+        `#^area=${blockref}` +
+        newSuffix +
+        line.slice(refStart + refMatch[0].length);
+
+      return data.substring(0, lineStart) + updatedLine + data.substring(endPos);
+    });
+  }
+
+  private ensurePaddingZoomIcon(): HTMLSpanElement | null {
+    const host = this.excalidrawContainer;
+    if (!host) {
+      return null;
+    }
+    if (!this.paddingZoomIconEl) {
+      const icon = host.createSpan({ cls: "excalidraw-padding-zoom-icon" });
+      icon.innerHTML =
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>';
+      setStyle(icon, { right: "auto", top: "auto" });
+      icon.addEventListener("click", (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        const id = this.hoveredAreaPaddingElementId;
+        if (!id) {
+          return;
+        }
+        const el = this.getViewElements().find(
+          (el) => el.id === id,
+        ) as ExcalidrawImageElement | undefined;
+        if (!el) {
+          return;
+        }
+        const rect = icon.getBoundingClientRect();
+        this.openAreaPaddingPopupForElement(el, {
+          left: rect.left,
+          top: rect.top,
+          right: rect.right,
+          bottom: rect.bottom,
+        });
+        this.hidePaddingZoomIcon();
+      });
+      this.paddingZoomIconEl = icon;
+    }
+    if (this.paddingZoomIconEl.parentElement !== host) {
+      host.appendChild(this.paddingZoomIconEl);
+    }
+    return this.paddingZoomIconEl;
+  }
+
+  private updateAreaPaddingHoverIcon() {
+    const api = this.excalidrawAPI;
+    if (!api) {
+      this.hidePaddingZoomIcon();
+      return;
+    }
+    const hit = getImageElementAtPointer(this.currentPosition, this);
+    const el = hit?.id
+      ? (api
+          .getSceneElements()
+          .find((el) => el.id === hit.id) as ExcalidrawImageElement | undefined)
+      : undefined;
+    const ef = el ? this.excalidrawData.getFile(el.fileId) : undefined;
+    if (!el || !ef?.filenameparts?.hasArearef) {
+      this.hidePaddingZoomIcon();
+      return;
+    }
+
+    this.hoveredAreaPaddingElementId = el.id;
+    const icon = this.ensurePaddingZoomIcon();
+    if (!icon) {
+      return;
+    }
+    const st = api.getAppState();
+    const { x, y } = sceneCoordsToViewportCoords(
+      { sceneX: el.x + el.width, sceneY: el.y },
+      st,
+    );
+    const iconWidth = icon.offsetWidth || 22;
+    setStyle(icon, {
+      opacity: "0.8",
+      left: `${x - st.offsetLeft - iconWidth - 4}px`,
+      top: `${y - st.offsetTop + 4}px`,
+    });
+  }
+
+  private hidePaddingZoomIcon() {
+    if (this.paddingZoomIconEl) {
+      setStyle(this.paddingZoomIconEl, { opacity: "0" });
+    }
+    this.hoveredAreaPaddingElementId = null;
   }
 
   private onChange(et: ExcalidrawElement[], st: AppState, files: BinaryFiles) {
