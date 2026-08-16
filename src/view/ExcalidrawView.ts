@@ -5212,24 +5212,16 @@ export default class ExcalidrawView
       return;
     }
     const st = api.getAppState();
-    const canvasEl = this.excalidrawContainer;
-    if (!canvasEl) {
-      this.hidePaddingZoomIcon();
-      return;
-    }
-    const canvasRect = canvasEl.getBoundingClientRect();
     const { x, y } = sceneCoordsToViewportCoords(
       { sceneX: el.x + el.width, sceneY: el.y },
       st,
     );
     const iconWidth = icon.offsetWidth || 22;
-    const iconHeigh = icon.offsetHeight || 22;
-    const clientLeft = x - st.offsetLeft;
-    const clientTop = y;
+    const iconHeight = icon.offsetHeight || 22;
     setStyle(icon, {
       opacity: "0.8",
-      left: `${clientLeft - iconWidth - 4}px`,
-      top: `${clientTop - iconHeigh - iconHeigh / 2}px`,
+      left: `${x - st.offsetLeft - iconWidth - 4}px`,
+      top: `${y - iconHeight * 1.5}px`,
     });
   }
 
