@@ -5149,7 +5149,7 @@ export default class ExcalidrawView
   }
 
   private ensurePaddingZoomIcon(): HTMLSpanElement | null {
-    const host = this.excalidrawContainer;
+    const host = this.containerEl;
     if (!host) {
       return null;
     }
@@ -5157,7 +5157,7 @@ export default class ExcalidrawView
       const icon = host.createSpan({ cls: "excalidraw-padding-zoom-icon" });
       icon.innerHTML =
         '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>';
-      setStyle(icon, { right: "auto", top: "auto" });
+      setStyle(icon, { position: "fixed", right: "auto", top: "auto" });
       icon.addEventListener("click", (e) => {
         e.stopPropagation();
         e.preventDefault();
@@ -5212,15 +5212,24 @@ export default class ExcalidrawView
       return;
     }
     const st = api.getAppState();
+    const canvasEl = this.excalidrawContainer;
+    if (!canvasEl) {
+      this.hidePaddingZoomIcon();
+      return;
+    }
+    const canvasRect = canvasEl.getBoundingClientRect();
     const { x, y } = sceneCoordsToViewportCoords(
       { sceneX: el.x + el.width, sceneY: el.y },
       st,
     );
     const iconWidth = icon.offsetWidth || 22;
+    const iconHeigh = icon.offsetHeight || 22;
+    const clientLeft = x - st.offsetLeft;
+    const clientTop = y;
     setStyle(icon, {
       opacity: "0.8",
-      left: `${x - st.offsetLeft - iconWidth - 4}px`,
-      top: `${y - st.offsetTop + 4}px`,
+      left: `${clientLeft - iconWidth - 4}px`,
+      top: `${clientTop - iconHeigh + 4}px`,
     });
   }
 
@@ -5318,7 +5327,7 @@ export default class ExcalidrawView
       st.editingTextElement === null &&
       //Removed because of
       //https://github.com/zsviczian/obsidian-excalidraw-plugin/issues/565
-      /*st.resizingElement === null && 
+      /*st.resizingElement === null &&
       st.newElement === null &&
       st.editingGroupId === null &&*/
       (st.selectedLinearElement === null || !st.selectedLinearElement.isEditing)
