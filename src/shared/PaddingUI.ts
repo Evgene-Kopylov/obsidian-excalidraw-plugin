@@ -5,6 +5,21 @@ declare const mainDocument: Document;
 
 let plugin: ExcalidrawPlugin;
 
+const areaPaddingSizeCache = new Map<
+  string,
+  { width: number; height: number }
+>();
+
+export const getAreaPaddingSize = (key: string) =>
+  areaPaddingSizeCache.get(key);
+
+export const setAreaPaddingSize = (
+  key: string,
+  size: { width: number; height: number },
+) => {
+  areaPaddingSizeCache.set(key, size);
+};
+
 export const initPaddingUI = (_plugin: ExcalidrawPlugin) => {
   plugin = _plugin;
 };
@@ -49,7 +64,7 @@ export const openPaddingPopup = (
   doc: Document,
   anchor: PaddingPopupAnchor,
   initialValue: number,
-  onCommit: (value: number) => void | Promise<void>,
+  onCommit: (value: number, final: boolean) => void | Promise<void>,
 ): void => {
   const existing = doc.querySelector(".ex-pad-popup");
   if (existing) existing.remove();
@@ -57,8 +72,8 @@ export const openPaddingPopup = (
   let value = initialValue;
   let debounceTimer: number;
 
-  const doSave = () => {
-    void onCommit(value);
+  const doSave = (final: boolean) => {
+    void onCommit(value, final);
   };
 
   const popup = doc.createElement("div");
@@ -88,7 +103,7 @@ export const openPaddingPopup = (
     label.textContent = String(value);
     updateKnob(value);
     window.clearTimeout(debounceTimer);
-    debounceTimer = window.setTimeout(doSave, 400);
+    debounceTimer = window.setTimeout(() => doSave(false), 400);
   };
 
   let dragging = false;
@@ -110,7 +125,7 @@ export const openPaddingPopup = (
   };
   const onPointerUp = () => {
     dragging = false;
-    doSave();
+    doSave(true);
   };
 
   track.addEventListener("pointerdown", onPointerDown);
@@ -149,7 +164,7 @@ export const openPaddingPopup = (
       doc.removeEventListener("pointermove", onPointerMove);
       doc.removeEventListener("pointerup", onPointerUp);
       window.clearTimeout(debounceTimer);
-      doSave();
+      doSave(true);
     }
   };
   setTimeout(() => doc.addEventListener("click", close), 0);
@@ -159,17 +174,26 @@ export const wrapWithPaddingPopup = (
   imgDiv: HTMLDivElement,
   src: string,
   fnameParts: FILENAMEPARTS,
+  reRender: (newSrc: string) => Promise<HTMLDivElement>,
 ): HTMLDivElement => {
   const currentPadding =
     fnameParts.padding ?? plugin.settings.exportPaddingSVG;
 
   const bareRef = src.replace(/,padding=\d+/, "");
 
+  const rememberSize = () => {
+    setAreaPaddingSize(bareRef, {
+      width: imgDiv.offsetWidth,
+      height: imgDiv.offsetHeight,
+    });
+  };
+
   const wrapper = mainDocument.createElement("div");
   wrapper.className = "excalidraw-padding-wrapper";
   wrapper.setAttribute("data-bare-ref", bareRef);
   wrapper.setAttribute("data-area-id", fnameParts.blockref);
   wrapper.appendChild(imgDiv);
+  requestAnimationFrame(rememberSize);
 
   const icon = mainDocument.createElement("span");
   icon.className = "excalidraw-padding-zoom-icon";
@@ -211,42 +235,59 @@ export const wrapWithPaddingPopup = (
     const occIdx = allWrappers.indexOf(wrapper);
     const hasOccurrence = occIdx !== -1;
 
-    const doSave = async (value: number) => {
-      const file = plugin.app.workspace.getActiveFile();
-      if (!file || !("extension" in file)) return;
+    const doSave = async (value: number, final: boolean) => {
       const defaultPad = plugin.settings.exportPaddingSVG;
       const newSuffix = value === defaultPad ? "" : ",padding=" + value;
-      // `![[` makes the base embed-specific, so a plain `[[...]]` link with the
-      // same area ref (e.g. in a task item) is never matched as occurrence zero.
-      const base = `![[${fnameParts.filepath}${fnameParts.linkpartReference.replace(/,padding=\d+$/, "")}`;
-      const replacement = base + newSuffix;
-      await plugin.app.vault.process(file, (data: string) => {
-        let idx: number;
-        let oldLen: number;
-        if (hasOccurrence) {
-          // Find the N-th occurrence of the base reference (sans ,padding=).
-          // The base reference is stable across padding changes.
-          idx = nthIndexOf(data, base, occIdx);
-          if (idx !== -1) {
-            const afterBase = data.substring(idx + base.length);
-            const padMatch = afterBase.match(/^,padding=\d+/);
-            oldLen = base.length + (padMatch ? padMatch[0].length : 0);
+
+      if (final) {
+        const file = plugin.app.workspace.getActiveFile();
+        if (!file || !("extension" in file)) return;
+        // `![[` makes the base embed-specific, so a plain `[[...]]` link with the
+        // same area ref (e.g. in a task item) is never matched as occurrence zero.
+        const base = `![[${fnameParts.filepath}${fnameParts.linkpartReference.replace(/,padding=\d+$/, "")}`;
+        const replacement = base + newSuffix;
+        await plugin.app.vault.process(file, (data: string) => {
+          let idx: number;
+          let oldLen: number;
+          if (hasOccurrence) {
+            // Find the N-th occurrence of the base reference (sans ,padding=).
+            // The base reference is stable across padding changes.
+            idx = nthIndexOf(data, base, occIdx);
+            if (idx !== -1) {
+              const afterBase = data.substring(idx + base.length);
+              const padMatch = afterBase.match(/^,padding=\d+/);
+              oldLen = base.length + (padMatch ? padMatch[0].length : 0);
+            }
+          } else {
+            // Fallback: exact match by the embed-specific target
+            idx = data.indexOf(target);
+            oldLen = target.length;
           }
-        } else {
-          // Fallback: exact match by the embed-specific target
-          idx = data.indexOf(target);
-          oldLen = target.length;
-        }
-        if (idx !== -1) {
+          if (idx !== -1) {
+            target = replacement;
+            return data.substring(0, idx) + replacement + data.substring(idx + oldLen);
+          }
+          const esc = base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          const re = new RegExp(esc + "(,padding=\\d+)?");
+          const result = data.replace(re, replacement);
           target = replacement;
-          return data.substring(0, idx) + replacement + data.substring(idx + oldLen);
-        }
-        const esc = base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        const re = new RegExp(esc + "(,padding=\\d+)?");
-        const result = data.replace(re, replacement);
-        target = replacement;
-        return result;
-      });
+          return result;
+        });
+        return;
+      }
+
+      // Update the target image in place during drag, so the note layout doesn't reflow.
+      const newSrc =
+        fnameParts.filepath +
+        fnameParts.linkpartReference.replace(/,padding=\d+$/, "") +
+        newSuffix +
+        fnameParts.linkpartAlias;
+      const newImgDiv = await reRender(newSrc);
+      if (newImgDiv) {
+        wrapper.replaceChild(newImgDiv, imgDiv);
+        imgDiv = newImgDiv;
+        requestAnimationFrame(rememberSize);
+      }
     };
 
     const rect = icon.getBoundingClientRect();
