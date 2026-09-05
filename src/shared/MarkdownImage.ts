@@ -176,12 +176,16 @@ export function isMarkdownImageElement(
   view: ExcalidrawView,
   element: ExcalidrawImageElement,
 ): boolean {
+  if (
+    getMarkdownImageCustomData(element) ||
+    view.excalidrawData.markdownImages.has(element.fileId)
+  ) {
+    return true;
+  }
   const embeddedFile = view.excalidrawData.getFile(element.fileId);
   return Boolean(
-    getMarkdownImageCustomData(element) ||
-      view.excalidrawData.hasMarkdownImage(element.fileId) ||
-      (embeddedFile?.file?.extension.toLowerCase() === "md" &&
-        !view.plugin.isExcalidrawFile(embeddedFile.file)),
+    embeddedFile?.file?.extension.toLowerCase() === "md" &&
+      !view.plugin.isExcalidrawFile(embeddedFile.file),
   );
 }
 

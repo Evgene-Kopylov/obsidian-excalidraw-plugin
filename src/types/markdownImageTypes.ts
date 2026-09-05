@@ -4,6 +4,9 @@ export const MARKDOWN_IMAGE_SCHEMA_VERSION = 1;
 
 export type MarkdownImageSource = "local" | "external";
 
+/** Persisted behavior for deleting a local Markdown image from the scene. */
+export type MarkdownImageDeletionPreference = "ask" | "keep" | "delete";
+
 export type MarkdownImageTransclusionRenderSettings = {
   enabled: boolean;
   fontFamily: string;

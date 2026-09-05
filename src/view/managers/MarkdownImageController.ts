@@ -10,6 +10,8 @@ import { t } from "../../lang/helpers";
 import { cleanSectionHeading } from "../../utils/pathUtils";
 import type ExcalidrawView from "../ExcalidrawView";
 
+type MarkdownImageDeletionDecision = "keep" | "delete";
+
 /** Runtime dependencies supplied by the composition root to avoid adding a
  * circular import: each originates from a module already on the plugin's
  * existing `ExcalidrawData`/`MarkdownImage`/`Prompt` import cycle. */
@@ -100,23 +102,12 @@ export class MarkdownImageController {
               this.dependencies.getMarkdownImageCustomData(candidate)
                 ?.source === "local",
           ) ||
-          !this.view.excalidrawData.hasMarkdownImage(element.fileId)
+          !this.view.excalidrawData.markdownImages.has(element.fileId)
         ) {
           continue;
         }
 
-        const prompt = new this.dependencies.MultiOptionConfirmationPrompt<
-          "keep" | "delete" | null
-        >(
-          this.view.plugin,
-          t("MARKDOWN_IMAGE_DELETE_TEXT_PROMPT"),
-          new Map([
-            [t("MARKDOWN_IMAGE_KEEP_TEXT"), "keep"],
-            [t("MARKDOWN_IMAGE_DELETE_TEXT"), "delete"],
-          ]),
-          t("MARKDOWN_IMAGE_KEEP_TEXT"),
-        );
-        const decision = await prompt.waitForClose;
+        const decision = await this.getDeletionDecision();
         if (
           !this.view.file ||
           this.view.file.path !== filePath ||
@@ -147,6 +138,43 @@ export class MarkdownImageController {
         this.pendingMarkdownImageDeletionIds.delete(element.id);
       }
     }
+  }
+
+  private async getDeletionDecision(): Promise<MarkdownImageDeletionDecision | null> {
+    const preference =
+      this.view.plugin.settings.markdownImageDeletionPreference;
+    if (preference === "keep" || preference === "delete") {
+      return preference;
+    }
+
+    const prompt = new this.dependencies.MultiOptionConfirmationPrompt<
+      MarkdownImageDeletionDecision | null
+    >(
+      this.view.plugin,
+      t("MARKDOWN_IMAGE_DELETE_TEXT_PROMPT"),
+      new Map([
+        [t("MARKDOWN_IMAGE_KEEP_TEXT"), "keep"],
+        [t("MARKDOWN_IMAGE_DELETE_TEXT"), "delete"],
+      ]),
+      t("MARKDOWN_IMAGE_KEEP_TEXT"),
+      {
+        name: t("MARKDOWN_IMAGE_REMEMBER_DELETE_CHOICE"),
+        description: t("MARKDOWN_IMAGE_REMEMBER_DELETE_CHOICE_DESC"),
+      },
+    );
+    const decision = await prompt.waitForClose;
+    if (decision && prompt.toggleValue) {
+      this.view.plugin.settings.markdownImageDeletionPreference = decision;
+      try {
+        await this.view.plugin.saveSettings();
+      } catch (error: unknown) {
+        this.dependencies.errorlog({
+          where: "MarkdownImageController.getDeletionDecision.saveSettings",
+          error,
+        });
+      }
+    }
+    return decision;
   }
 
   public async openMarkdownImageEditor(elementId?: string): Promise<void> {

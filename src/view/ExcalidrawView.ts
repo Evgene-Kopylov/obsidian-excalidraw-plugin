@@ -5329,7 +5329,7 @@ export default class ExcalidrawView
       }
       if (
         getMarkdownImageCustomData(element)?.source !== "local" ||
-        !this.excalidrawData.hasMarkdownImage(element.fileId)
+        !this.excalidrawData.markdownImages.has(element.fileId)
       ) {
         return;
       }
@@ -5674,6 +5674,21 @@ export default class ExcalidrawView
       }
     }
     if (data.elements) {
+      data.elements
+        .filter(
+          (element): element is ExcalidrawImageElement =>
+            element.type === "image" &&
+            getMarkdownImageCustomData(element)?.source === "local",
+        )
+        .forEach((element) => {
+          if (this.excalidrawData.markdownImages.has(element.fileId)) {
+            return;
+          }
+          const source = this.plugin.markdownImagesMaster.get(element.fileId);
+          if (source) {
+            this.excalidrawData.setMarkdownImage(element.fileId, source);
+          }
+        });
       data.elements
         .filter((el) => el.type === "text" || el.link)
         .forEach((el) =>

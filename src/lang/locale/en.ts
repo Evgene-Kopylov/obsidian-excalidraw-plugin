@@ -233,6 +233,16 @@ export default {
     "Delete the Markdown text stored for this image? The image will be removed from the scene either way.",
   MARKDOWN_IMAGE_KEEP_TEXT: "Keep Markdown text",
   MARKDOWN_IMAGE_DELETE_TEXT: "Delete Markdown text",
+  MARKDOWN_IMAGE_REMEMBER_DELETE_CHOICE:
+    "Use this choice for future deletions",
+  MARKDOWN_IMAGE_REMEMBER_DELETE_CHOICE_DESC:
+    'Reset “Local Markdown image deletion” to “Ask every time” in the Excalidraw plugin settings.',
+  MARKDOWN_IMAGE_DELETE_BEHAVIOR_NAME: "Local Markdown image deletion",
+  MARKDOWN_IMAGE_DELETE_BEHAVIOR_DESC:
+    "Choose whether deleting a local Markdown image also deletes its back-of-note Markdown text.",
+  MARKDOWN_IMAGE_DELETE_BEHAVIOR_ASK: "Ask every time",
+  MARKDOWN_IMAGE_DELETE_BEHAVIOR_KEEP: "Keep text without asking",
+  MARKDOWN_IMAGE_DELETE_BEHAVIOR_DELETE: "Delete text without asking",
   INSERT_PDF: "Insert PDF file from vault",
   INSERT_LAST_ACTIVE_PDF_PAGE_AS_IMAGE: "Insert last active PDF page as image",
   UNIVERSAL_ADD_FILE: "Insert ANY file",

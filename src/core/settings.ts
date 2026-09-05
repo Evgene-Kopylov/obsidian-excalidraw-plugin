@@ -4586,6 +4586,7 @@ export class ExcalidrawSettingTab extends PluginSettingTab {
 
   private getMarkdownImageDefaultDefinitions(): SettingDefinitionItem<SettingBindingKey>[] {
     return [
+      ...this.toDeclarativeDefinitions(this.getMarkdownImageDeletionSpecs()),
       this.createMarkdownDimensionDefinition({
         name: t("MD_TRANSCLUDE_WIDTH_NAME"),
         desc: fragWithHTML(t("MD_TRANSCLUDE_WIDTH_DESC")),
@@ -4608,6 +4609,7 @@ export class ExcalidrawSettingTab extends PluginSettingTab {
   }
 
   private renderMarkdownImageDefaultSettings(container: HTMLElement): void {
+    this.renderSettingSpecs(container, this.getMarkdownImageDeletionSpecs());
     this.configureIntegerTextSetting(new Setting(container), {
       name: t("MD_TRANSCLUDE_WIDTH_NAME"),
       desc: fragWithHTML(t("MD_TRANSCLUDE_WIDTH_DESC")),
@@ -4624,6 +4626,34 @@ export class ExcalidrawSettingTab extends PluginSettingTab {
     });
     this.configureMarkdownFontSetting(new Setting(container));
     this.renderSettingSpecs(container, this.getMarkdownImageStyleSpecs());
+  }
+
+  private getMarkdownImageDeletionSpecs(): SettingSpec[] {
+    return [
+      {
+        name: t("MARKDOWN_IMAGE_DELETE_BEHAVIOR_NAME"),
+        desc: t("MARKDOWN_IMAGE_DELETE_BEHAVIOR_DESC"),
+        aliases: ["local Markdown image deletion", "back-of-note deletion"],
+        control: {
+          type: "dropdown",
+          key: "markdownImageDeletionPreference",
+          options: [
+            {
+              value: "ask",
+              label: t("MARKDOWN_IMAGE_DELETE_BEHAVIOR_ASK"),
+            },
+            {
+              value: "keep",
+              label: t("MARKDOWN_IMAGE_DELETE_BEHAVIOR_KEEP"),
+            },
+            {
+              value: "delete",
+              label: t("MARKDOWN_IMAGE_DELETE_BEHAVIOR_DELETE"),
+            },
+          ],
+        },
+      },
+    ];
   }
 
   private getNonstandardSpecs(): SettingSpec[] {

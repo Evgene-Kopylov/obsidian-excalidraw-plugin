@@ -17,6 +17,12 @@ I build this plugin as a labor of love. Curious about the philosophy behind it? 
 
 <div class="ex-coffee-div"><a href="${URLs.KO_FI_COM_ZSOLT}"><img src="${URLs.CDN_KO_FI_COM_CDN_KOFI3_PNG}" border="0" alt="Buy Me a Coffee at ko-fi.com"  height=45></a></div>
 `,
+"2.27.3": `
+## Fixed and updated
+- Slideshow script now supports better slide sorter, setting slide titles and some other UX improvements.
+- Local Markdown images copied between drawings now retain their back-of-note text, render after reopening, and no longer trigger repeated deletion confirmations.
+- You can now toggle whether deleting a local Markdown image keeps or deletes its back-of-note text, and reset the choice in plugin settings.
+`,
 "2.27.2": `
 ## Fixed
 - Canvas properties (tray and desktop UI modes) and the element properties (tray-mode only) were moved to the top left corner of the Obsidian workspace when changing tabs.

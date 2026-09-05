@@ -250,6 +250,16 @@ export class PluginSettingsManager {
       delete markdownImageDefaults.theme;
       didSettingsMigration = true;
     }
+    const markdownImageDeletionPreference =
+      this.host.settings.markdownImageDeletionPreference;
+    if (
+      markdownImageDeletionPreference !== "ask" &&
+      markdownImageDeletionPreference !== "keep" &&
+      markdownImageDeletionPreference !== "delete"
+    ) {
+      this.host.settings.markdownImageDeletionPreference = "ask";
+      didSettingsMigration = true;
+    }
     const settingsRecord = this.host.settings as unknown as Record<
       string,
       unknown

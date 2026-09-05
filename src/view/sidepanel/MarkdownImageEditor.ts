@@ -1535,18 +1535,26 @@ class MarkdownImageEditorController {
   }
 
   /**
-   * Flushes the current editor's content into excalidrawData and force-persists it to disk.
+   * Flushes changed editor content into excalidrawData and force-persists it to disk.
    * Shared by switchElement() (selection changes within this controller) and
    * flushPendingEditsBeforeHandoff() (handoff to a brand new controller in
    * openMarkdownImageEditor()) so a previous element's edits are always guaranteed to be flushed
-   * and saved before anything else starts editing a different element.
+   * and saved before anything else starts editing a different element. A clean selection switch
+   * only detaches the old editor: saving and reloading it would needlessly reload every scene image.
    */
   private async flushCurrentElement(): Promise<void> {
-    await this.renderCurrentEditor();
+    const hasPendingContentChanges = this.editorContentDirty;
+    const hasPendingRender =
+      this.renderTimer !== null || this.editorRenderPromise !== null;
+    if (hasPendingContentChanges || hasPendingRender) {
+      await this.renderCurrentEditor(!hasPendingContentChanges);
+    }
     this.cancelScheduledRender();
     this.removeEditorFocusListener();
-    await this.flushAndDetachEditor();
-    await this.persistOwnerAfterEditorFlush();
+    await this.flushAndDetachEditor(hasPendingContentChanges);
+    if (hasPendingContentChanges) {
+      await this.persistOwnerAfterEditorFlush();
+    }
     this.cancelScheduledRender();
   }
 

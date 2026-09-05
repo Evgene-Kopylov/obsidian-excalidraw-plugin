@@ -744,18 +744,9 @@ export class ExcalidrawData {
 
     // https://github.com/zsviczian/obsidian-excalidraw-plugin/issues/396
     const parsedMarkdownImages = parseMarkdownImages(data);
-    this.scene.elements.forEach((element: ExcalidrawElement) => {
-      const markdownImageData = element.customData?.[
-        MARKDOWN_IMAGE_CUSTOM_DATA_KEY
-      ] as MarkdownImageCustomData | undefined;
-      if (
-        element.type === "image" &&
-        markdownImageData?.source === "local" &&
-        !parsedMarkdownImages.has(element.fileId)
-      ) {
-        this.plugin.markdownImagesMaster.delete(element.fileId);
-      }
-    });
+    // A missing block is local to this drawing. Do not delete the shared
+    // clipboard source: another open drawing may still own valid Markdown for
+    // the same copied fileId.
     parsedMarkdownImages.forEach((value, fileId) =>
       this.setMarkdownImage(fileId, value),
     );
@@ -1774,9 +1765,16 @@ export class ExcalidrawData {
       FileId,
       Mutable<ExcalidrawImageElement>[]
     >();
+    const localMarkdownFileIds = new Set<FileId>();
     for (const element of scene.elements) {
       if (element.type !== "image") {
         continue;
+      }
+      const markdownImageData = element.customData?.[
+        MARKDOWN_IMAGE_CUSTOM_DATA_KEY
+      ] as MarkdownImageCustomData | undefined;
+      if (markdownImageData?.source === "local") {
+        localMarkdownFileIds.add(element.fileId);
       }
       images.push(element);
       fileIds.push(element.fileId);
@@ -1816,6 +1814,19 @@ export class ExcalidrawData {
       }
     });
 
+    // The element metadata is authoritative for source type. A local Markdown
+    // image may retain stale per-view entries after changing its source. Clear
+    // those incompatible entries, but do not restore from the plugin-wide
+    // clipboard registry here: onPaste owns clipboard import, while an ordinary
+    // reload must respect Markdown text deliberately removed from the note.
+    // This is registry bookkeeping within an already-authorized save and does
+    // not require loadDrawing() to republish the unchanged scene files.
+    localMarkdownFileIds.forEach((fileId) => {
+      this.files.delete(fileId);
+      this.equations.delete(fileId);
+      this.mermaids.delete(fileId);
+    });
+
     //check if there are any images that need to be processed in the new scene
     if (!scene.files || Object.keys(scene.files).length === 0) {
       return dirty;
@@ -1833,6 +1844,9 @@ export class ExcalidrawData {
     const processedIds = new Set<string>();
     fileIds.forEach((fileId, idx) => {
       if (processedIds.has(fileId)) {
+        if (localMarkdownFileIds.has(fileId)) {
+          return;
+        }
         const embeddedFile = this.getFile(fileId);
         const equation = this.getEquation(fileId);
         const mermaid = this.getMermaid(fileId);
@@ -1905,26 +1919,27 @@ export class ExcalidrawData {
     });
 
     for (const key of Object.keys(scene.files)) {
+      const fileId = key as FileId;
       const fileData = scene.files[key] as (typeof scene.files)[string] & {
         name?: string;
       };
       const mermaidElements = getMermaidImageElements(
-        imagesByFileId.get(key as FileId) ?? [],
+        imagesByFileId.get(fileId) ?? [],
       );
-      if (
-        !(
-          this.hasFile(key as FileId) ||
-          this.hasEquation(key as FileId) ||
-          this.hasMermaid(key as FileId) ||
-          this.hasMarkdownImage(key as FileId) ||
-          mermaidElements.length > 0
-        )
-      ) {
+      if (localMarkdownFileIds.has(fileId)) {
+        continue;
+      }
+      const hasKnownSource =
+        this.hasFile(fileId) ||
+        this.hasEquation(fileId) ||
+        this.hasMermaid(fileId) ||
+        mermaidElements.length > 0;
+      if (!hasKnownSource) {
         dirty = true;
         await this.saveDataURLtoVault(
           fileData.dataURL,
           fileData.mimeType,
-          key as FileId,
+          fileId,
           fileData.name,
         );
       }
