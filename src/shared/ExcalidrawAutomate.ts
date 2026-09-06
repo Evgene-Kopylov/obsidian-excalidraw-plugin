@@ -89,6 +89,7 @@ import {
 } from "@zsviczian/excalidraw/types/excalidraw/types";
 import { EmbeddedFile, EmbeddedFilesLoader } from "./EmbeddedFileLoader";
 import { tex2dataURL } from "./LaTeX";
+import type { MathJaxRenderOptions } from "src/types/mathJaxTypes";
 import {
   LatexSuitePlugin,
   MultiOptionConfirmationPrompt,
@@ -2987,6 +2988,7 @@ export class ExcalidrawAutomate {
    * @param {string} tex - The LaTeX equation string.
    * @param {number} [scaleX=1] - The x-scaling factor (post mathjax creation)
    * @param {number} [scaleY=1] - The y-scaling factor (post mathjax creation)
+   * @param {MathJaxRenderOptions} [options] - MathJax rendering options. Set `throwOnError` to propagate invalid LaTeX errors.
    * @returns {Promise<string>} Promise resolving to the ID of the added LaTeX image element.
    */
   async addLaTex(
@@ -2995,12 +2997,13 @@ export class ExcalidrawAutomate {
     tex: string,
     scaleX: number = 1,
     scaleY: number = 1,
+    options?: MathJaxRenderOptions,
   ): Promise<string> {
     if (!tex || !scaleX || !scaleY) {
       return null;
     }
     const id = nanoid();
-    const image = await tex2dataURL(tex, 4, this.plugin);
+    const image = await tex2dataURL(tex, 4, this.plugin, options);
     if (!image) {
       return null;
     }
@@ -3034,11 +3037,13 @@ export class ExcalidrawAutomate {
    * Returns the base64 dataURL of the LaTeX equation rendered as an SVG.
    * @param {string} tex - The LaTeX equation string.
    * @param {number} [scale=4] - The scale factor for the image.
+   * @param {MathJaxRenderOptions} [options] - MathJax rendering options. Set `throwOnError` to propagate invalid LaTeX errors.
    * @returns {Promise<{mimeType: MimeType; fileId: FileId; dataURL: DataURL; created: number; size: { height: number; width: number };}>} Promise resolving to the LaTeX image data.
    */
   async tex2dataURL(
     tex: string,
     scale: number = 4, // Default scale value, adjust as needed
+    options?: MathJaxRenderOptions,
   ): Promise<{
     mimeType: MimeType;
     fileId: FileId;
@@ -3046,7 +3051,7 @@ export class ExcalidrawAutomate {
     created: number;
     size: { height: number; width: number };
   }> {
-    return await tex2dataURL(tex, scale, this.plugin);
+    return await tex2dataURL(tex, scale, this.plugin, options);
   }
 
   /**

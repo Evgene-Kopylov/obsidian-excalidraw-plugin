@@ -481,14 +481,14 @@ export const EXCALIDRAW_AUTOMATE_INFO: SuggesterInfo[] = [
   },
   {
     field: "addLaTex",
-    code: "async addLaTex(topX: number, topY: number, tex: string): Promise<string>;",
-    desc: "This is an async function, you need to avait the results. Adds a LaTex element to the drawing. The tex string is the LaTex code. The function returns the id of the created element.",
+    code: "async addLaTex(topX: number, topY: number, tex: string, scaleX: number = 1, scaleY: number = 1, options?: {throwOnError?: boolean}): Promise<string>;",
+    desc: "This is an async function; await the result. Adds a LaTeX element to the drawing and returns its ID. Set options.throwOnError to true to catch invalid LaTeX errors in your script.",
     after: "",
   },
   {
     field: "tex2dataURL",
-    code: "async tex2dataURL(tex: string, scale: number = 4): Promise<{mimeType: MimeType;fileId: FileId;dataURL: DataURL;created: number;size: { height: number; width: number };}> ",
-    desc: "returns the base64 dataURL of the LaTeX equation rendered as an SVG. tex is the LaTeX equation string",
+    code: "async tex2dataURL(tex: string, scale: number = 4, options?: {throwOnError?: boolean}): Promise<{mimeType: MimeType;fileId: FileId;dataURL: DataURL;created: number;size: { height: number; width: number };}> ",
+    desc: "Returns the base64 dataURL of the LaTeX equation rendered as an SVG. Set options.throwOnError to true to catch invalid LaTeX errors in your script.",
     after: "",
   },
   {

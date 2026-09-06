@@ -19,6 +19,7 @@ I build this plugin as a labor of love. Curious about the philosophy behind it? 
 `,
 "2.27.3": `
 ## Fixed and updated
+- Excalidraw Automate scripts can now opt into strict LaTeX validation with \`{ throwOnError: true }\` in \`addLaTex()\` and \`tex2dataURL()\`, allowing scripts such as ExcaliMath to catch and display MathJax errors. Requires Excalidraw Extras 0.1.0. [#2](${URLs.GITHUB_COM_ZSVICZIAN_OBSIDIAN_EXCALIDRAW_EXTRAS_ISSUES}/2)
 - Slideshow script now supports better slide sorter, setting slide titles and some other UX improvements.
 - Local Markdown images copied between drawings now retain their back-of-note text, render after reopening, and no longer trigger repeated deletion confirmations.
 - You can now toggle whether deleting a local Markdown image keeps or deletes its back-of-note text, and reset the choice in plugin settings.
