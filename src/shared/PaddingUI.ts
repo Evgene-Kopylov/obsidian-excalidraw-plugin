@@ -311,6 +311,11 @@ export const wrapWithPaddingPopup = (
       // DOM for the edited line, and a stale preview would leak into a sibling
       // embed of the same area.
       if (imgDiv !== originalImgDiv && wrapper.isConnected) {
+        // Hold the preview height while the original image is swapped back in,
+        // so the note does not reflow before the file write re-renders it.
+        setStyle(wrapper, {
+          minHeight: `${imgDiv.offsetHeight}px`,
+        });
         wrapper.replaceChild(originalImgDiv, imgDiv);
         imgDiv = originalImgDiv;
       }
