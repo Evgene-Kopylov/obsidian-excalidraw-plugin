@@ -234,6 +234,16 @@ export default {
     "¿Eliminar el texto Markdown guardado para esta imagen? La imagen se eliminará de la escena en cualquier caso.",
   MARKDOWN_IMAGE_KEEP_TEXT: "Conservar texto Markdown",
   MARKDOWN_IMAGE_DELETE_TEXT: "Eliminar texto Markdown",
+  MARKDOWN_IMAGE_REMEMBER_DELETE_CHOICE:
+    "Usar esta opción para futuras eliminaciones",
+  MARKDOWN_IMAGE_REMEMBER_DELETE_CHOICE_DESC:
+    'Restablece “Eliminación de imágenes Markdown locales” a “Preguntar cada vez” en los ajustes del plugin de Excalidraw.',
+  MARKDOWN_IMAGE_DELETE_BEHAVIOR_NAME: "Eliminación de imágenes Markdown locales",
+  MARKDOWN_IMAGE_DELETE_BEHAVIOR_DESC:
+    "Elige si al eliminar una imagen Markdown local también se elimina su texto Markdown del reverso de la nota.",
+  MARKDOWN_IMAGE_DELETE_BEHAVIOR_ASK: "Preguntar cada vez",
+  MARKDOWN_IMAGE_DELETE_BEHAVIOR_KEEP: "Conservar el texto sin preguntar",
+  MARKDOWN_IMAGE_DELETE_BEHAVIOR_DELETE: "Eliminar el texto sin preguntar",
   INSERT_PDF: "Insertar archivo PDF desde la bóveda",
   INSERT_LAST_ACTIVE_PDF_PAGE_AS_IMAGE:
     "Insertar última página PDF activa como imagen",
@@ -286,6 +296,8 @@ export default {
     "Error, no se puede leer la ruta del archivo. Insertando el archivo en su lugar",
   NO_SEARCH_RESULT: "No se encontró ningún elemento coincidente en el bosquejo",
   FORCE_SAVE_ABORTED: "Guardado forzado abortado porque ya se está guardando",
+  DRAWING_RELOAD_FAILED:
+    "Excalidraw rechazó los datos de dibujo entrantes no válidos. Se conservó el dibujo actualmente abierto en el lienzo. Guárdalo o expórtalo antes de cerrar esta vista y revisa el archivo sincronizado o su historial de versiones.",
   LINKLIST_SECOND_ORDER_LINK: "Enlace de Segundo Orden",
   MARKDOWN_EMBED_CUSTOMIZE_LINK_PROMPT_TITLE:
     "Personalizar el enlace del archivo incrustado",
@@ -1113,15 +1125,16 @@ export default {
   EMBED_IMAGE_CACHE_NAME:
     "Guardar imágenes en caché para incrustar en Markdown",
   EMBED_IMAGE_CACHE_DESC:
-    "Guarda imágenes en caché para incrustar en Markdown. Esto acelerará el proceso de incrustación, pero si compones imágenes a partir de varios bosquejos anidados, " +
-    "la imagen incrustada en Markdown no se actualizará hasta que abras el bosquejo y lo guardes para activar la actualización del caché.",
+    "Guarda imágenes en caché para incrustarlas en Markdown. Los bosquejos almacenados en caché se actualizan cuando cambia el bosquejo o una de sus dependencias de archivos de la bóveda.",
   SCENE_IMAGE_CACHE_NAME:
     "Guardar bosquejos anidados de Excalidraw en caché en la escena",
   SCENE_IMAGE_CACHE_DESC:
     "Guarda los bosquejos anidados en caché para un renderizado más rápido. Esto acelerará el proceso de renderizado, especialmente si tienes muchos bosquejos anidados en tu escena. " +
-    "Excalidraw intentará identificar de manera inteligente si algún elemento de un bosquejo anidado ha cambiado y actualizará el caché. " +
+    "Excalidraw identificará los cambios en los bosquejos anidados y en sus fuentes de archivos de la bóveda, y actualizará la caché en consecuencia. " +
     "Puede que quieras desactivar esta opción si sospechas que el caché no se está actualizando correctamente.",
   EMBED_IMAGE_CACHE_CLEAR: "Vaciar caché de imágenes",
+  REFRESH_SCENE_IMAGES:
+    "Actualizar la imagen seleccionada o todas las imágenes del dibujo actual",
   BACKUP_CACHE_CLEAR: "Eliminar copias de seguridad",
   BACKUP_CACHE_CLEAR_CONFIRMATION:
     "Esta acción eliminará todas las copias de seguridad de los bosquejos de Excalidraw. Las copias de seguridad se utilizan como medida de seguridad en caso de que tu archivo de bosquejo se dañe. Cada vez que abres Obsidian, el complemento elimina automáticamente las copias de seguridad de los archivos que ya no existen en tu Bóveda. ¿Estás seguro de que quieres borrar todas las copias de seguridad?",
