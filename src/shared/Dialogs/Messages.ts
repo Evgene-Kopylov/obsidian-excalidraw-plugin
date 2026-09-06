@@ -23,6 +23,7 @@ I build this plugin as a labor of love. Curious about the philosophy behind it? 
 - Local Markdown images copied between drawings now retain their back-of-note text, render after reopening, and no longer trigger repeated deletion confirmations.
 - You can now toggle whether deleting a local Markdown image keeps or deletes its back-of-note text, and reset the choice in plugin settings.
 - Converting local Markdown images to embeddables and back now preserves last-minute edits without duplicate elements, malformed back-of-note content, or recursive drawing images. The Markdown image sidepanel also follows the converted element correctly.
+- Unchanged Markdown images now keep their already-rendered image during scene reloads, avoiding flicker and unnecessary rendering work.
 `,
 "2.27.2": `
 ## Fixed

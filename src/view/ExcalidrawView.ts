@@ -3162,6 +3162,19 @@ export default class ExcalidrawView
     );
   }
 
+  /** Records a displayed Markdown image for view-local reload deduplication. */
+  public rememberMarkdownImageRender(
+    element: ExcalidrawImageElement,
+    markdown: string,
+    sourceFile: TFile,
+  ): void {
+    this.sceneFileManager.rememberMarkdownImageRender(
+      element,
+      markdown,
+      sourceFile.path,
+    );
+  }
+
   public async synchronizeWithData(inData: ExcalidrawData) {
     const synchronizedFilePath = this.file?.path;
     if (

@@ -1,4 +1,13 @@
-import type { MarkdownImageRenderSettings } from "src/types/markdownImageTypes";
+import type {
+  MarkdownImageCustomData,
+  MarkdownImageRenderSettings,
+} from "src/types/markdownImageTypes";
+
+/** View-local identity of the inputs used to render a Markdown image. */
+export type MarkdownImageRenderCacheEntry = {
+  markdown: string;
+  configuration: string;
+};
 
 const normalizeFontColor = (fontColor: string): string =>
   fontColor.trim() === "" ? "black" : fontColor;
@@ -42,5 +51,18 @@ export function resolveMarkdownImageRenderSettings(
       },
       css: storedTransclusion?.css ?? defaultTransclusion.css,
     },
+  };
+}
+
+/** Captures every persisted or defaulted input that can affect SVG rendering. */
+export function createMarkdownImageRenderCacheEntry(
+  markdown: string,
+  sourceFilePath: string,
+  customData: MarkdownImageCustomData,
+  render: MarkdownImageRenderSettings,
+): MarkdownImageRenderCacheEntry {
+  return {
+    markdown,
+    configuration: JSON.stringify({ sourceFilePath, customData, render }),
   };
 }

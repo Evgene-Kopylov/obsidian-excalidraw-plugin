@@ -1,4 +1,7 @@
-import type { FileId } from "@zsviczian/excalidraw/types/element/src/types";
+import type {
+  ExcalidrawImageElement,
+  FileId,
+} from "@zsviczian/excalidraw/types/element/src/types";
 import type {
   ExcalidrawImperativeAPI,
 } from "@zsviczian/excalidraw/types/excalidraw/types";
@@ -9,6 +12,15 @@ import type {
 } from "../../shared/EmbeddedFileLoader";
 import type { FileData } from "../../types/embeddedFileLoaderTypes";
 import type ExcalidrawView from "../ExcalidrawView";
+import {
+  createMarkdownImageRenderCacheEntry,
+  resolveMarkdownImageRenderSettings,
+  type MarkdownImageRenderCacheEntry,
+} from "../../utils/markdownImageUtils";
+import {
+  MARKDOWN_IMAGE_CUSTOM_DATA_KEY,
+  type MarkdownImageCustomData,
+} from "../../types/markdownImageTypes";
 
 /** Runtime dependencies supplied by the composition root to avoid adding a
  * circular import.
@@ -119,11 +131,42 @@ export class ViewSceneFileManager {
     FileId,
     DeferredCacheValidation
   >();
+  private readonly markdownImageRenderCache = new Map<
+    FileId,
+    MarkdownImageRenderCacheEntry
+  >();
 
   public constructor(
     private readonly view: ExcalidrawView,
     private readonly dependencies: ViewSceneFileManagerDependencies,
   ) {}
+
+  /** Records a Markdown image already rendered by an editor or conversion. */
+  public rememberMarkdownImageRender(
+    element: ExcalidrawImageElement,
+    markdown: string,
+    sourceFilePath: string,
+  ): void {
+    const customData = element.customData?.[
+      MARKDOWN_IMAGE_CUSTOM_DATA_KEY
+    ] as MarkdownImageCustomData | undefined;
+    if (!customData) {
+      return;
+    }
+    const render = resolveMarkdownImageRenderSettings(
+      this.view.plugin.settings.markdownImageSettings.defaults,
+      customData.render,
+    );
+    this.markdownImageRenderCache.set(
+      element.fileId,
+      createMarkdownImageRenderCacheEntry(
+        markdown,
+        sourceFilePath,
+        customData,
+        render,
+      ),
+    );
+  }
 
   private isRuntimeCurrent(
     api: ExcalidrawImperativeAPI,
@@ -263,6 +306,10 @@ export class ViewSceneFileManager {
         deferredCacheValidation: candidates,
         validationConcurrency: 1,
         emitPolicy,
+        markdownImageRenderCache: this.markdownImageRenderCache,
+        loadedMarkdownImageFileIds: new Set(
+          Object.keys(api.getFiles()) as FileId[],
+        ),
       });
     }, 250);
   }
@@ -467,6 +514,10 @@ export class ViewSceneFileManager {
         waitForRender: () =>
           waitForWindowPaint(() => this.view.ownerWindow ?? window),
         prioritizedFileIds,
+        markdownImageRenderCache: this.markdownImageRenderCache,
+        loadedMarkdownImageFileIds: new Set(
+          Object.keys(requestAPI.getFiles()) as FileId[],
+        ),
       });
     };
     if (!this.activeLoader) {

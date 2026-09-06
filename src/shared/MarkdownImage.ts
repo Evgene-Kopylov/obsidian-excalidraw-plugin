@@ -199,6 +199,24 @@ async function renderMarkdown(
   return loader.renderMarkdownToSVG(sourceFile, markdown, render);
 }
 
+const rememberRenderedMarkdownImage = (
+  view: ExcalidrawView,
+  elementId: string,
+  markdown: string,
+  sourceFile: TFile,
+): ExcalidrawImageElement | null => {
+  const element = view
+    .getViewElements()
+    .find(
+      (candidate): candidate is ExcalidrawImageElement =>
+        candidate.id === elementId && candidate.type === "image",
+    );
+  if (element) {
+    view.rememberMarkdownImageRender(element, markdown, sourceFile);
+  }
+  return element ?? null;
+};
+
 const setRenderedMarkdownImageFile = (
   ea: ReturnType<typeof getEA>,
   fileId: FileId,
@@ -292,11 +310,12 @@ export async function convertEmbeddableElementToMarkdownImage(
 ): Promise<boolean> {
   const render = getMarkdownImageRenderSettings(view.plugin);
   render.width = Math.max(50, Math.round(element.width));
+  const sourceFile = sourceData.embeddedFile?.file ?? view.file;
   const rendered = await renderMarkdown(
     view,
     sourceData.markdown,
     render,
-    sourceData.embeddedFile?.file ?? view.file,
+    sourceFile,
   );
   if (!rendered.dataURL || rendered.size.height <= 0) {
     return false;
@@ -339,6 +358,12 @@ export async function convertEmbeddableElementToMarkdownImage(
   if (converted) {
     view.excalidrawAPI.selectElements([converted]);
   }
+  rememberRenderedMarkdownImage(
+    view,
+    element.id,
+    sourceData.markdown,
+    sourceFile,
+  );
   view.setDirty();
   return true;
 }
@@ -437,11 +462,12 @@ export async function insertMarkdownImage(
     return null;
   }
   const render = getMarkdownImageRenderSettings(view.plugin);
+  const sourceFile = sourceData.embeddedFile?.file ?? view.file;
   const rendered = await renderMarkdown(
     view,
     sourceData.markdown,
     render,
-    sourceData.embeddedFile?.file ?? view.file,
+    sourceFile,
   );
   if (!rendered.dataURL || rendered.size.height <= 0) {
     return null;
@@ -481,6 +507,12 @@ export async function insertMarkdownImage(
   }
   view.setDirty();
   view.excalidrawAPI.selectElements([element]);
+  rememberRenderedMarkdownImage(
+    view,
+    element.id,
+    sourceData.markdown,
+    sourceFile,
+  );
   return element;
 }
 
@@ -539,9 +571,12 @@ export async function duplicateLocalMarkdownImageElement(
     return null;
   }
   view.setDirty();
-  const inserted = view
-    .getViewElements()
-    .find((candidate) => candidate.id === duplicate.id);
+  const inserted = rememberRenderedMarkdownImage(
+    view,
+    duplicate.id,
+    source.markdown,
+    view.file,
+  );
   if (inserted) {
     view.excalidrawAPI.selectElements([inserted]);
   }
@@ -582,6 +617,7 @@ export async function updateMarkdownImage(
   if (!(await commitElements(ea))) {
     return false;
   }
+  rememberRenderedMarkdownImage(view, element.id, markdown, sourceFile);
   view.setDirty();
   // Persist right after every successful render instead of only on specific UI events (switching
   // elements, closing the sidepanel, etc.). Those events are not reliable signals of "the user is
