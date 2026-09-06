@@ -83,7 +83,11 @@ import {
   type MarkdownImageCustomData,
   type MarkdownImageRenderSettings,
 } from "src/types/markdownImageTypes";
-import { resolveMarkdownImageRenderSettings } from "src/utils/markdownImageUtils";
+import {
+  createMarkdownImageRenderCacheEntry,
+  resolveMarkdownImageRenderSettings,
+  type MarkdownImageRenderCacheEntry,
+} from "src/utils/markdownImageUtils";
 import { addAppendUpdateCustomData } from "src/utils/elementCustomDataUtils";
 
 //declared in rollup.config.mjs
@@ -126,6 +130,7 @@ export type DeferredCacheValidation =
 
 type LoadImageOptions = {
   cacheValidation?: CacheValidationMode;
+  bypassCache?: boolean;
   onStaleCacheHit?: (validation: DeferredCacheValidation) => void;
   deferUncachedExcalidraw?: boolean;
   onExcalidrawGenerationDeferred?: () => void;
@@ -782,6 +787,7 @@ export class EmbeddedFilesLoader {
     hasSVGwithBitmap,
     elements = [],
     cacheValidation = "validated",
+    bypassCache = false,
     onStaleCacheHit,
     deferUncachedGeneration = false,
   }: {
@@ -792,6 +798,7 @@ export class EmbeddedFilesLoader {
     hasSVGwithBitmap: boolean;
     elements?: ExcalidrawElement[];
     cacheValidation?: CacheValidationMode;
+    bypassCache?: boolean;
     onStaleCacheHit?: (validation: DeferredCacheValidation) => void;
     deferUncachedGeneration?: boolean;
   }): Promise<{
@@ -822,6 +829,7 @@ export class EmbeddedFilesLoader {
       inFile instanceof EmbeddedFile ? inFile.colorMap : null,
     );
     const shouldUseCache =
+      !bypassCache &&
       !hasColorMap &&
       this.plugin.settings.allowImageCacheInScene &&
       file &&
@@ -1115,6 +1123,7 @@ export class EmbeddedFilesLoader {
           inFile,
           hasSVGwithBitmap,
           cacheValidation: options?.cacheValidation,
+          bypassCache: options?.bypassCache,
           onStaleCacheHit: options?.onStaleCacheHit,
           deferUncachedGeneration: options?.deferUncachedExcalidraw,
         });
@@ -1270,6 +1279,8 @@ export class EmbeddedFilesLoader {
     sceneElements,
     waitForRender,
     prioritizedFileIds,
+    markdownImageRenderCache,
+    loadedMarkdownImageFileIds,
   }: {
     excalidrawData: ExcalidrawData;
     addFiles: (files: FileData[], isDark: boolean, final?: boolean) => void;
@@ -1287,6 +1298,8 @@ export class EmbeddedFilesLoader {
     sceneElements?: readonly ExcalidrawElement[];
     waitForRender?: () => Promise<void>;
     prioritizedFileIds?: ReadonlySet<FileId>;
+    markdownImageRenderCache?: Map<FileId, MarkdownImageRenderCacheEntry>;
+    loadedMarkdownImageFileIds?: ReadonlySet<FileId>;
   }) {
     this.terminalState = "running";
     if (this.isDark === undefined) {
@@ -1325,6 +1338,13 @@ export class EmbeddedFilesLoader {
     const markdownImageFileIds = new Set(
       markdownImageElements.map((element) => element.fileId),
     );
+    if (markdownImageRenderCache) {
+      for (const fileId of markdownImageRenderCache.keys()) {
+        if (!markdownImageFileIds.has(fileId)) {
+          markdownImageRenderCache.delete(fileId);
+        }
+      }
+    }
     //debug({where:"EmbeddedFileLoader.loadSceneFiles",uid:this.uid,isDark:this.isDark,sceneTheme:excalidrawData.scene.appState.theme});
     let onLoadTaskSettled: (() => void) | null = null;
     const createSafeLoadTask = (
@@ -1355,6 +1375,10 @@ export class EmbeddedFilesLoader {
       DeferredCacheValidation
     >();
     const deferredGenerationEntries: typeof entries = [];
+    const renderedMarkdownImageCacheEntries = new Map<
+      FileId,
+      MarkdownImageRenderCacheEntry
+    >();
 
     function* loadIterator(
       loader: EmbeddedFilesLoader,
@@ -1403,6 +1427,7 @@ export class EmbeddedFilesLoader {
               let excalidrawGenerationDeferred = false;
               const data = await loader._getObsidianImage(embeddedFile, depth, {
                 cacheValidation,
+                bypassCache: shouldForceReload,
                 fileId: id,
                 deferUncachedExcalidraw,
                 onExcalidrawGenerationDeferred: () => {
@@ -1535,6 +1560,27 @@ export class EmbeddedFilesLoader {
             if (markdown === undefined) {
               return;
             }
+            const currentCustomData = element.customData?.[
+              MARKDOWN_IMAGE_CUSTOM_DATA_KEY
+            ] as MarkdownImageCustomData | undefined;
+            if (!currentCustomData) {
+              return;
+            }
+            const cacheEntry = createMarkdownImageRenderCacheEntry(
+              markdown,
+              sourceFile.path,
+              currentCustomData,
+              render,
+            );
+            const cached = markdownImageRenderCache?.get(id);
+            if (
+              !forceReloadFileIDs?.has(id) &&
+              loadedMarkdownImageFileIds?.has(id) &&
+              cached?.markdown === cacheEntry.markdown &&
+              cached.configuration === cacheEntry.configuration
+            ) {
+              return;
+            }
             const rendered = await loader.renderMarkdownToSVG(
               sourceFile,
               markdown,
@@ -1552,6 +1598,7 @@ export class EmbeddedFilesLoader {
               hasSVGwithBitmap: rendered.hasSVGwithBitmap,
               shouldScale: true,
             });
+            renderedMarkdownImageCacheEntries.set(id, cacheEntry);
           },
           {
             phase: "markdown-image",
@@ -1726,6 +1773,14 @@ export class EmbeddedFilesLoader {
       }
       try {
         addFiles(batchFiles, this.isDark, final);
+        if (batchFiles && markdownImageRenderCache) {
+          for (const file of batchFiles) {
+            const cacheEntry = renderedMarkdownImageCacheEntries.get(file.id);
+            if (cacheEntry) {
+              markdownImageRenderCache.set(file.id, cacheEntry);
+            }
+          }
+        }
       } catch (e: unknown) {
         errorlog({ where: "EmbeddedFileLoader.loadSceneFiles", error: e });
       }
@@ -1912,6 +1967,7 @@ export class EmbeddedFilesLoader {
       const pageNum = isNaN(linkParts.page) ? 1 : (linkParts.page ?? 1);
       const requestedScale = this.plugin.settings.pdfScale;
       const shouldUseCache =
+        !options?.bypassCache &&
         getImageCache().isReady() &&
         (!options || this.plugin.settings.allowImageCacheInScene);
       const cacheKey: ImageKey = {

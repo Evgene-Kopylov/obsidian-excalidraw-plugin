@@ -8,6 +8,7 @@ import {
   normalizePath,
   TFile,
   Notice,
+  Setting,
   TextAreaComponent,
 } from "obsidian";
 import ExcalidrawView from "../../view/ExcalidrawView";
@@ -1295,8 +1296,17 @@ export class NewFileActions extends Modal {
   }
 }
 
+/** Optional toggle shown with a multi-option confirmation prompt. */
+export interface ConfirmationPromptToggle {
+  name: string;
+  description?: string;
+  defaultValue?: boolean;
+}
+
 export class MultiOptionConfirmationPrompt<T = boolean | null> extends Modal {
   public waitForClose: Promise<T>;
+  /** Current value of the optional toggle. */
+  public toggleValue: boolean;
   private resolvePromise: (value: T) => void;
   private rejectPromise: (reason?: string) => void;
   private selectedValue: T = null;
@@ -1310,8 +1320,10 @@ export class MultiOptionConfirmationPrompt<T = boolean | null> extends Modal {
     message: string,
     buttons?: Map<string, T>,
     ctaButtonLabel?: string,
+    private readonly toggle?: ConfirmationPromptToggle,
   ) {
     super(plugin.app);
+    this.toggleValue = toggle?.defaultValue ?? false;
     this.message = message;
     if (!buttons || buttons.size === 0) {
       buttons = new Map<string, boolean | null>([
@@ -1340,6 +1352,17 @@ export class MultiOptionConfirmationPrompt<T = boolean | null> extends Modal {
     const messageEl = this.contentEl.createDiv();
     messageEl.addClass("excalidraw-multiOptionConfirmationPrompt-message");
     setSanitizedHtml(messageEl, this.message);
+
+    if (this.toggle) {
+      new Setting(this.contentEl)
+        .setName(this.toggle.name)
+        .setDesc(this.toggle.description ?? "")
+        .addToggle((component) =>
+          component.setValue(this.toggleValue).onChange((value) => {
+            this.toggleValue = value;
+          }),
+        );
+    }
 
     const buttonContainer = this.contentEl.createDiv();
     buttonContainer.addClass(
