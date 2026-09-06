@@ -62,6 +62,10 @@ export const URL_REGISTRY = {
     "https://github.com/zsviczian/obsidian-excalidraw-plugin/issues",
     UrlPurpose.DOCS,
   ),
+  GITHUB_COM_ZSVICZIAN_OBSIDIAN_EXCALIDRAW_EXTRAS_ISSUES: defineUrl(
+    "https://github.com/zsviczian/obsidian-excalidraw-extras/issues",
+    UrlPurpose.RELEASE_LOG,
+  ),
   API_OPENAI_COM_V1: defineUrl("https://api.openai.com/v1", UrlPurpose.AI_API),
   API_ANTHROPIC_COM_V1: defineUrl(
     "https://api.anthropic.com/v1",
