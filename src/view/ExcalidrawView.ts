@@ -148,6 +148,7 @@ import {
 import {
   convertEmbeddableElementToMarkdownImage,
   convertMarkdownImageElementToEmbeddable,
+  containsReservedMarkdownImageMarker,
   getEmbeddableMarkdownImageSource,
   getLevelOneMarkdownHeadings,
   getMarkdownImageCustomData,
@@ -670,6 +671,7 @@ export default class ExcalidrawView
       getMarkdownImageSource,
       convertMarkdownImageElementToEmbeddable,
       getLevelOneMarkdownHeadings,
+      containsReservedMarkdownImageMarker,
       openMarkdownImageEditorSidepanel,
       parseMarkdownImages,
       unwrapMarkdownImageBlock,

@@ -23,6 +23,7 @@ export interface MarkdownImageControllerDependencies {
   getMarkdownImageSource: typeof import("../../shared/MarkdownImage").getMarkdownImageSource;
   convertMarkdownImageElementToEmbeddable: typeof import("../../shared/MarkdownImage").convertMarkdownImageElementToEmbeddable;
   getLevelOneMarkdownHeadings: typeof import("../../shared/MarkdownImage").getLevelOneMarkdownHeadings;
+  containsReservedMarkdownImageMarker: typeof import("../../shared/MarkdownImage").containsReservedMarkdownImageMarker;
   openMarkdownImageEditorSidepanel: typeof import("../sidepanel/MarkdownImageEditor").openMarkdownImageEditor;
   parseMarkdownImages: typeof import("../../shared/ExcalidrawData").parseMarkdownImages;
   unwrapMarkdownImageBlock: typeof import("../../shared/ExcalidrawData").unwrapMarkdownImageBlock;
@@ -53,6 +54,7 @@ export class MarkdownImageController {
   }> = [];
   public pendingMarkdownImageDeletionIds = new Set<ExcalidrawElement["id"]>();
   public markdownImageDeletionPrompt: Promise<void> | null = null;
+  private conversionInProgress = false;
 
   public constructor(
     private readonly view: ExcalidrawView,
@@ -189,14 +191,174 @@ export class MarkdownImageController {
     await this.dependencies.openMarkdownImageEditorSidepanel(this.view, image);
   }
 
+  private getUniqueLocalSectionRange(
+    data: string,
+    localSection: string,
+  ): { start: number; end: number } | null {
+    const sectionHeadings =
+      this.dependencies.getLevelOneMarkdownHeadings(localSection);
+    const firstContentIndex = localSection.search(/\S/);
+    if (sectionHeadings.length === 0) {
+      const exactCandidates = [localSection, localSection.trim()].filter(
+        (candidate, index, candidates) =>
+          candidate.length > 0 && candidates.indexOf(candidate) === index,
+      );
+      for (const candidate of exactCandidates) {
+        const start = data.indexOf(candidate);
+        if (start !== -1 && start === data.lastIndexOf(candidate)) {
+          return { start, end: start + candidate.length };
+        }
+      }
+      return null;
+    }
+    if (
+      sectionHeadings.length !== 1 ||
+      sectionHeadings[0].index !== firstContentIndex
+    ) {
+      return null;
+    }
+    const title = cleanSectionHeading(
+      sectionHeadings[0].title,
+    ).toLocaleLowerCase();
+    const documentHeadings =
+      this.dependencies.getLevelOneMarkdownHeadings(data);
+    const matches = documentHeadings
+      .map((heading, index) => ({ heading, index }))
+      .filter(
+        ({ heading }) =>
+          cleanSectionHeading(heading.title).toLocaleLowerCase() === title,
+      );
+    if (matches.length !== 1) {
+      return null;
+    }
+    const match = matches[0];
+    let end = documentHeadings[match.index + 1]?.index ?? data.length;
+    const beforeNextHeading = data.slice(match.heading.index, end);
+    const commentBoundary = /(?:^|\r?\n)(%%[ \t]*)(?:\r?\n[ \t]*)*$/.exec(
+      beforeNextHeading,
+    );
+    if (commentBoundary) {
+      end =
+        match.heading.index +
+        commentBoundary.index +
+        commentBoundary[0].indexOf(commentBoundary[1]);
+    }
+    return {
+      start: match.heading.index,
+      end,
+    };
+  }
+
+  private removeLocalSection(
+    data: string,
+    localSection: string,
+  ): string | null {
+    const range = this.getUniqueLocalSectionRange(data, localSection);
+    return range
+      ? `${data.slice(0, range.start)}${data.slice(range.end)}`
+      : null;
+  }
+
+  private isManagedSectionTitle(title: string): boolean {
+    const normalizedTitle = cleanSectionHeading(title).toLocaleLowerCase();
+    return MD_EX_SECTIONS.some(
+      (heading) =>
+        cleanSectionHeading(heading).toLocaleLowerCase() === normalizedTitle,
+    );
+  }
+
+  private isUnsafeLocalSection(localSection: string): boolean {
+    if (this.dependencies.containsReservedMarkdownImageMarker(localSection)) {
+      return true;
+    }
+    const sectionHeadings =
+      this.dependencies.getLevelOneMarkdownHeadings(localSection);
+    const firstContentIndex = localSection.search(/\S/);
+    return (
+      sectionHeadings.length > 1 ||
+      (sectionHeadings.length === 1 &&
+        (sectionHeadings[0].index !== firstContentIndex ||
+          this.isManagedSectionTitle(sectionHeadings[0].title)))
+    );
+  }
+
+  private persistedLocalSectionMatches(
+    data: string,
+    localSection: string,
+  ): boolean {
+    const normalizedData = data.replace(/\r\n/g, "\n");
+    const normalizedSection = localSection.replace(/\r\n/g, "\n").trim();
+    if (!normalizedSection) {
+      return false;
+    }
+    const range = this.getUniqueLocalSectionRange(
+      normalizedData,
+      normalizedSection,
+    );
+    if (!range) {
+      return false;
+    }
+    const persistedSection = normalizedData
+      .slice(range.start, range.end)
+      .trim();
+    return (
+      persistedSection === normalizedSection ||
+      (persistedSection.startsWith(normalizedSection) &&
+        /^[\s#]*$/.test(persistedSection.slice(normalizedSection.length)))
+    );
+  }
+
+  private waitForViewFileModification(timeoutMs: number): Promise<void> {
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        this.view.ownerWindow.clearTimeout(timeout);
+        this.view.app.vault.offref(eventRef);
+        resolve();
+      };
+      const eventRef = this.view.app.vault.on("modify", (file) => {
+        if (file === this.view.file) {
+          finish();
+        }
+      });
+      const timeout = this.view.ownerWindow.setTimeout(finish, timeoutMs);
+    });
+  }
+
+  private async runConversion(operation: () => Promise<void>): Promise<void> {
+    if (this.conversionInProgress) {
+      return;
+    }
+    this.conversionInProgress = true;
+    try {
+      await operation();
+    } finally {
+      this.conversionInProgress = false;
+    }
+  }
+
   /** Converts a Markdown embeddable without changing its scene identity. */
   public async convertEmbeddableToMarkdownImage(
     elementId: string,
   ): Promise<void> {
-    const element = this.view.getViewElements().find(
-      (candidate): candidate is ExcalidrawEmbeddableElement =>
-        candidate.id === elementId && candidate.type === "embeddable",
+    await this.runConversion(() =>
+      this.performEmbeddableToMarkdownImage(elementId),
     );
+  }
+
+  private async performEmbeddableToMarkdownImage(
+    elementId: string,
+  ): Promise<void> {
+    const element = this.view
+      .getViewElements()
+      .find(
+        (candidate): candidate is ExcalidrawEmbeddableElement =>
+          candidate.id === elementId && candidate.type === "embeddable",
+      );
     if (!element) {
       return;
     }
@@ -209,41 +371,72 @@ export class MarkdownImageController {
       return;
     }
 
-    let localSection = "";
+    let dataWithoutLocalSection: string | null = null;
     if (source.source === "local") {
-      const child = this.view.getEmbeddableLeafElementById(element.id)?.node
-        ?.child;
-      if (!child || child.file !== this.view.file) {
+      const node = this.view.getEmbeddableLeafElementById(element.id)?.node;
+      const child = node?.child;
+      if (!node || !child || child.file !== this.view.file) {
         new Notice(t("MARKDOWN_IMAGE_CONVERSION_ERROR"));
         return;
       }
-      if (child.lastSavedData !== this.view.data) {
-        await this.view.forceSave(true);
-        if (child.lastSavedData !== this.view.data) {
-          new Notice(t("ERROR_TRY_AGAIN"));
-          return;
-        }
-      }
-      localSection = `${child.heading ?? ""}${child.text ?? ""}`;
+      const localSection = `${child.heading ?? ""}${child.text ?? ""}`;
       if (!localSection.trim()) {
         new Notice(t("MARKDOWN_IMAGE_CONVERSION_ERROR"));
         return;
       }
+      if (this.isUnsafeLocalSection(localSection)) {
+        new Notice(t("ERROR_TRY_AGAIN"));
+        return;
+      }
+      try {
+        let persistedData = await this.view.app.vault.read(this.view.file);
+        const shouldWaitForModification =
+          node.isEditing &&
+          !this.persistedLocalSectionMatches(persistedData, localSection);
+        const modificationPromise = shouldWaitForModification
+          ? this.waitForViewFileModification(2500)
+          : null;
+        this.view.canvasNodeFactory.stopEditing(node);
+        this.view.updateScene({ appState: { activeEmbeddable: null } });
+        if (shouldWaitForModification) {
+          await modificationPromise;
+          persistedData = await this.view.app.vault.read(this.view.file);
+        }
+        if (!this.persistedLocalSectionMatches(persistedData, localSection)) {
+          new Notice(t("ERROR_TRY_AGAIN"));
+          return;
+        }
+        this.view.data = persistedData;
+      } catch (error: unknown) {
+        this.dependencies.errorlog({
+          where:
+            "MarkdownImageController.performEmbeddableToMarkdownImage.flushChild",
+          error,
+        });
+        new Notice(t("ERROR_TRY_AGAIN"));
+        return;
+      }
+      const updatedData = this.removeLocalSection(this.view.data, localSection);
+      if (updatedData === null) {
+        new Notice(t("ERROR_TRY_AGAIN"));
+        return;
+      }
+      dataWithoutLocalSection = updatedData;
       source.markdown = localSection.trim();
     }
 
-    if (
-      !(await this.dependencies.convertEmbeddableElementToMarkdownImage(
+    const converted =
+      await this.dependencies.convertEmbeddableElementToMarkdownImage(
         this.view,
         element,
         source,
-      ))
-    ) {
+      );
+    if (!converted) {
       new Notice(t("MARKDOWN_IMAGE_CONVERSION_ERROR"));
       return;
     }
-    if (source.source === "local") {
-      this.view.data = this.view.data.replace(localSection, "");
+    if (dataWithoutLocalSection !== null) {
+      this.view.data = dataWithoutLocalSection;
       await this.view.forceSave(true);
     }
   }
@@ -252,10 +445,20 @@ export class MarkdownImageController {
   public async convertMarkdownImageToEmbeddable(
     elementId: string,
   ): Promise<void> {
-    const element = this.view.getViewElements().find(
-      (candidate): candidate is ExcalidrawImageElement =>
-        candidate.id === elementId && candidate.type === "image",
+    await this.runConversion(() =>
+      this.performMarkdownImageToEmbeddable(elementId),
     );
+  }
+
+  private async performMarkdownImageToEmbeddable(
+    elementId: string,
+  ): Promise<void> {
+    const element = this.view
+      .getViewElements()
+      .find(
+        (candidate): candidate is ExcalidrawImageElement =>
+          candidate.id === elementId && candidate.type === "image",
+      );
     if (
       !element ||
       !this.dependencies.isMarkdownImageElement(this.view, element)
@@ -317,20 +520,9 @@ export class MarkdownImageController {
         headings[0].index === firstContentIndex &&
         documentHeadingCount - storedHeadingCount === 0 &&
         candidateTitle.length > 0 &&
-        !MD_EX_SECTIONS.some(
-          (heading) =>
-            cleanSectionHeading(heading).toLocaleLowerCase() ===
-            candidateTitle.toLocaleLowerCase(),
-        );
+        !this.isManagedSectionTitle(candidateTitle);
       if (!valid) {
         new Notice(t("MARKDOWN_IMAGE_H1_WARNING"), 10000);
-        return;
-      }
-      const proceed = await new this.dependencies.MultiOptionConfirmationPrompt(
-        this.view.plugin,
-        t("MARKDOWN_IMAGE_H1_WARNING"),
-      ).waitForClose;
-      if (!proceed) {
         return;
       }
       title = candidateTitle;
@@ -349,13 +541,10 @@ export class MarkdownImageController {
       const sections = await this.view.getBackOfTheNoteSections();
       if (
         !title ||
-        MD_EX_SECTIONS.some(
-          (heading) =>
-            cleanSectionHeading(heading).toLocaleLowerCase() ===
-            title.toLocaleLowerCase(),
-        ) ||
+        this.isManagedSectionTitle(title) ||
         sections.some(
-          (heading) => heading.toLocaleLowerCase() === title.toLocaleLowerCase(),
+          (heading) =>
+            heading.toLocaleLowerCase() === title.toLocaleLowerCase(),
         )
       ) {
         new Notice(t("INVALID_SECTION_NAME"));
@@ -364,15 +553,24 @@ export class MarkdownImageController {
       sectionMarkdown = `# ${title}\n\n${source.markdown.trim()}`.trim();
     }
 
-    const localIds = parsedMarkdownImages.size
-      ? [...parsedMarkdownImages.keys()]
-      : [...this.view.excalidrawData.markdownImages.keys()];
-    const localIndex = localIds.indexOf(element.fileId);
-    if (localIndex !== -1 && localIndex < localIds.length - 1) {
-      sectionMarkdown += "\n\n# \n\n";
+    const remainingLocalImageIds = new Set([
+      ...parsedMarkdownImages.keys(),
+      ...this.view.excalidrawData.markdownImages.keys(),
+    ]);
+    remainingLocalImageIds.delete(element.fileId);
+    sectionMarkdown = sectionMarkdown
+      .replace(/(?:\r?\n[ \t]*#[ \t]*)+(?:\r?\n[ \t]*)*$/, "")
+      .trimEnd();
+    if (remainingLocalImageIds.size === 0) {
+      sectionMarkdown += "\n\n#";
     }
 
     const previousData = this.view.data;
+    this.view.data = this.dependencies.unwrapMarkdownImageBlock(
+      this.view.data,
+      element.fileId,
+      "",
+    );
     this.dependencies.insertBackOfTheNoteContent(this.view, sectionMarkdown);
     this.view.excalidrawData.deleteMarkdownImage(element.fileId);
     const link = `[[${this.view.file.path}#${title}]]`;
