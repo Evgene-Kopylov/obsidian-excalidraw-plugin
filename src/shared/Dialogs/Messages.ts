@@ -30,6 +30,7 @@ I build this plugin as a labor of love. Curious about the philosophy behind it? 
   - External Markdown image sources are now checked when a drawing regains focus and when validating cached nested drawings.
 - New command panel action: *"Refresh selected image or all images in the current drawing"*. This invalidates the image cache and regenerates the selected image or all images in the current drawing.
 - Bucket fill color palette now matches the custom palette for the element background, if available.
+- Excalidraw stroke and element background color top-picks drag and drop did not work in Obsidian popout windows.
 
 ## New
 - Slideshow script now includes an improved slide sorter, support for setting slide titles, and other UX improvements.
