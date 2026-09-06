@@ -4,8 +4,8 @@ import replace from "@rollup/plugin-replace";
 import { rollup } from "rollup";
 
 /**
- * Bundles the official React package entrypoints into one window-evaluable
- * artifact for the Obsidian main window and popouts.
+ * Bundles the official React package entrypoints into one function-evaluable
+ * artifact for the plugin's shared private runtime.
  *
  * @param {{ isProduction: boolean }} options Build-mode selection.
  * @returns {Promise<string>} Generated browser runtime source.

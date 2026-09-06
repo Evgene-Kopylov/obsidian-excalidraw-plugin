@@ -5,8 +5,10 @@ import {
   FuzzyMatch,
   FuzzySuggestModal,
   Instruction,
+  normalizePath,
   TFile,
   Notice,
+  Setting,
   TextAreaComponent,
 } from "obsidian";
 import ExcalidrawView from "../../view/ExcalidrawView";
@@ -1096,6 +1098,7 @@ export class NewFileActions extends Modal {
   private openNewFile: boolean;
   private parentFile: TFile;
   private sourceElement: ExcalidrawElement;
+  private followObsidianNewNoteLocation: boolean;
 
   constructor({
     plugin,
@@ -1105,6 +1108,7 @@ export class NewFileActions extends Modal {
     openNewFile = true,
     parentFile,
     sourceElement,
+    followObsidianNewNoteLocation = false,
   }: {
     plugin: ExcalidrawPlugin;
     path: string;
@@ -1113,6 +1117,7 @@ export class NewFileActions extends Modal {
     openNewFile?: boolean;
     parentFile?: TFile;
     sourceElement?: ExcalidrawElement;
+    followObsidianNewNoteLocation?: boolean;
   }) {
     super(plugin.app);
     this.plugin = plugin;
@@ -1122,6 +1127,7 @@ export class NewFileActions extends Modal {
     this.openNewFile = openNewFile;
     this.sourceElement = sourceElement;
     this.parentFile = parentFile ?? view.file;
+    this.followObsidianNewNoteLocation = followObsidianNewNoteLocation;
     this.waitForClose = new Promise<TFile | null>((resolve, reject) => {
       this.resolvePromise = resolve;
       this.rejectPromise = reject;
@@ -1183,15 +1189,42 @@ export class NewFileActions extends Modal {
         return true;
       };
 
-      const createFile = async (data: string): Promise<TFile> => {
-        if (!this.path.includes("/")) {
-          const re = new RegExp(`${escapeRegExp(this.parentFile.name)}$`, "g");
-          this.path = this.parentFile.path.replace(re, this.path);
+      const createFile = async (
+        data: string,
+        useObsidianNewNoteLocation: boolean,
+      ): Promise<TFile> => {
+        let path = this.path;
+        if (!path.match(/\.md$/)) {
+          path = `${path}.md`;
         }
-        if (!this.path.match(/\.md$/)) {
-          this.path = `${this.path}.md`;
+        if (!path.includes("/")) {
+          if (
+            useObsidianNewNoteLocation &&
+            this.followObsidianNewNoteLocation
+          ) {
+            const newFileLocation = this.app.vault.getConfig("newFileLocation");
+            let targetFolder = this.parentFile.parent?.path ?? "";
+            if (newFileLocation === "root") {
+              targetFolder = "";
+            } else if (newFileLocation === "folder") {
+              const configuredFolder = this.app.vault.getConfig(
+                "newFileFolderPath",
+              );
+              targetFolder =
+                typeof configuredFolder === "string" ? configuredFolder : "";
+            }
+            path = normalizePath(
+              targetFolder ? `${targetFolder}/${path}` : path,
+            );
+          } else {
+            const re = new RegExp(
+              `${escapeRegExp(this.parentFile.name)}$`,
+              "g",
+            );
+            path = this.parentFile.path.replace(re, path);
+          }
         }
-        return await createOrOverwriteFile(this.app, this.path, data);
+        return await createOrOverwriteFile(this.app, path, data);
       };
 
       if (this.sourceElement) {
@@ -1203,7 +1236,7 @@ export class NewFileActions extends Modal {
           if (!checks) {
             return;
           }
-          const f = await createFile("");
+          const f = await createFile("", true);
           if (f) {
             const ea: ExcalidrawAutomate = getEA(this.view);
             ea.copyViewElementsToEAforEditing([this.sourceElement]);
@@ -1231,7 +1264,7 @@ export class NewFileActions extends Modal {
         if (!checks) {
           return;
         }
-        const f = await createFile("");
+        const f = await createFile("", true);
         this.openFile(f);
         this.close();
       };
@@ -1244,7 +1277,10 @@ export class NewFileActions extends Modal {
         if (!checks) {
           return;
         }
-        const f = await createFile(await this.plugin.getBlankDrawing());
+        const f = await createFile(
+          await this.plugin.getBlankDrawing(),
+          false,
+        );
         await sleep(200); //wait for metadata cache to update, so file opens as excalidraw
         this.openFile(f);
         this.close();
@@ -1260,8 +1296,17 @@ export class NewFileActions extends Modal {
   }
 }
 
+/** Optional toggle shown with a multi-option confirmation prompt. */
+export interface ConfirmationPromptToggle {
+  name: string;
+  description?: string;
+  defaultValue?: boolean;
+}
+
 export class MultiOptionConfirmationPrompt<T = boolean | null> extends Modal {
   public waitForClose: Promise<T>;
+  /** Current value of the optional toggle. */
+  public toggleValue: boolean;
   private resolvePromise: (value: T) => void;
   private rejectPromise: (reason?: string) => void;
   private selectedValue: T = null;
@@ -1275,8 +1320,10 @@ export class MultiOptionConfirmationPrompt<T = boolean | null> extends Modal {
     message: string,
     buttons?: Map<string, T>,
     ctaButtonLabel?: string,
+    private readonly toggle?: ConfirmationPromptToggle,
   ) {
     super(plugin.app);
+    this.toggleValue = toggle?.defaultValue ?? false;
     this.message = message;
     if (!buttons || buttons.size === 0) {
       buttons = new Map<string, boolean | null>([
@@ -1305,6 +1352,17 @@ export class MultiOptionConfirmationPrompt<T = boolean | null> extends Modal {
     const messageEl = this.contentEl.createDiv();
     messageEl.addClass("excalidraw-multiOptionConfirmationPrompt-message");
     setSanitizedHtml(messageEl, this.message);
+
+    if (this.toggle) {
+      new Setting(this.contentEl)
+        .setName(this.toggle.name)
+        .setDesc(this.toggle.description ?? "")
+        .addToggle((component) =>
+          component.setValue(this.toggleValue).onChange((value) => {
+            this.toggleValue = value;
+          }),
+        );
+    }
 
     const buttonContainer = this.contentEl.createDiv();
     buttonContainer.addClass(

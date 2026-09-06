@@ -120,7 +120,7 @@ type LegacyGridColor = NonNullable<
  * `.find()` call on `scene.elements` to `any`. Omitting them first makes
  * this an actual override.
  */
-type ExcalidrawDataScene = Omit<
+export type ExcalidrawDataScene = Omit<
   SceneDataWithFiles,
   "elements" | "appState"
 > & {
@@ -138,6 +138,11 @@ type ExcalidrawDataScene = Omit<
 };
 
 type RegExpMatchIteratorResult = IteratorResult<RegExpMatchArray, undefined>;
+
+type SceneElementIndexes = {
+  linkedNonTextElementsById: Map<string, ExcalidrawElement>;
+  textElementsById: Map<string, Mutable<ExcalidrawTextElement>>;
+};
 
 type MarkdownBlockNode = {
   type: string;
@@ -246,11 +251,37 @@ export const REG_LINKINDEX_HYPERLINK = /^\w+:\/\//;
 export type EquationItem = { latex: string; isLoaded: boolean };
 export type MermaidItem = { mermaid: string; isLoaded: boolean };
 
+type TextElementData = {
+  raw: string;
+  parsed: string;
+  hasTextLink: boolean;
+};
+
+/** Drawing-owned metadata transferred without retaining an old view. */
+export interface ExcalidrawDataMigrationState {
+  sourceFilePath: string;
+  textElements: ReadonlyMap<string, TextElementData>;
+  scene: ExcalidrawDataScene;
+  deletedElements: readonly ExcalidrawElement[];
+  showLinkBrackets: boolean;
+  linkPrefix: string;
+  embeddableTheme: "light" | "dark" | "auto" | "default";
+  urlPrefix: string;
+  autoexportPreference: AutoexportPreference;
+  textMode: TextMode;
+  loaded: boolean;
+  elementLinks: ReadonlyMap<string, string>;
+  files: ReadonlyMap<FileId, EmbeddedFile>;
+  markdownImages: ReadonlyMap<FileId, MarkdownImageData>;
+  equations: ReadonlyMap<FileId, EquationItem>;
+  mermaids: ReadonlyMap<FileId, MermaidItem>;
+  compatibilityMode: boolean;
+  textElementCommentedOut: boolean;
+  selectedElementIds: Readonly<Record<string, boolean>>;
+}
+
 export class ExcalidrawData {
-  public textElements: Map<
-    string,
-    { raw: string; parsed: string; hasTextLink: boolean }
-  > = null;
+  public textElements: Map<string, TextElementData> = null;
   public scene: ExcalidrawDataScene = null;
   public deletedElements: ExcalidrawElement[] = [];
   public file: TFile = null;
@@ -310,6 +341,110 @@ export class ExcalidrawData {
     this.compatibilityMode = null;
     this.textElementCommentedOut = null;
     this.selectedElementIds = null;
+  }
+
+  /**
+   * Exports drawing-owned state for a one-shot window migration.
+   *
+   * Collection containers and mutable metadata records are copied. Immutable
+   * Excalidraw elements and `EmbeddedFile` descriptors are transferred by
+   * reference: neither owns a view, DOM node, `Window`, React runtime, or
+   * package lease, and retaining their cached asset metadata is intentional.
+   */
+  public exportMigrationState(): ExcalidrawDataMigrationState | null {
+    if (
+      !this.loaded ||
+      !this.file ||
+      !this.scene ||
+      !this.textElements ||
+      !this.elementLinks ||
+      !this.files ||
+      !this.markdownImages ||
+      !this.equations ||
+      !this.mermaids
+    ) {
+      return null;
+    }
+    return {
+      sourceFilePath: this.file.path,
+      textElements: new Map(
+        Array.from(this.textElements, ([id, value]) => [id, { ...value }]),
+      ),
+      scene: {
+        ...this.scene,
+        elements: [...this.scene.elements],
+        appState: { ...this.scene.appState },
+        files: { ...(this.scene.files ?? {}) },
+      },
+      deletedElements: [...this.deletedElements],
+      showLinkBrackets: this.showLinkBrackets,
+      linkPrefix: this.linkPrefix,
+      embeddableTheme: this.embeddableTheme,
+      urlPrefix: this.urlPrefix,
+      autoexportPreference: this.autoexportPreference,
+      textMode: this.textMode,
+      loaded: this.loaded,
+      elementLinks: new Map(this.elementLinks),
+      files: new Map(this.files),
+      markdownImages: new Map(
+        Array.from(this.markdownImages, ([id, value]) => [
+          id,
+          { ...value },
+        ]),
+      ),
+      equations: new Map(
+        Array.from(this.equations, ([id, value]) => [id, { ...value }]),
+      ),
+      mermaids: new Map(
+        Array.from(this.mermaids, ([id, value]) => [id, { ...value }]),
+      ),
+      compatibilityMode: this.compatibilityMode,
+      textElementCommentedOut: this.textElementCommentedOut,
+      selectedElementIds: { ...this.selectedElementIds },
+    };
+  }
+
+  /** Adopts a validated drawing-state export into this new view-owned model. */
+  public adoptMigrationState(
+    state: ExcalidrawDataMigrationState,
+    file: TFile,
+  ): boolean {
+    if (!file || state.sourceFilePath !== file.path || !state.loaded) {
+      return false;
+    }
+    this.textElements = new Map(
+      Array.from(state.textElements, ([id, value]) => [id, { ...value }]),
+    );
+    this.scene = {
+      ...state.scene,
+      elements: [...state.scene.elements],
+      appState: { ...state.scene.appState },
+      files: { ...(state.scene.files ?? {}) },
+    };
+    this.deletedElements = [...state.deletedElements];
+    this.file = file;
+    this.showLinkBrackets = state.showLinkBrackets;
+    this.linkPrefix = state.linkPrefix;
+    this.embeddableTheme = state.embeddableTheme;
+    this.urlPrefix = state.urlPrefix;
+    this.autoexportPreference = state.autoexportPreference;
+    this.textMode = state.textMode;
+    this.loaded = state.loaded;
+    this.elementLinks = new Map(state.elementLinks);
+    this.files = new Map(state.files);
+    this.markdownImages = new Map(
+      Array.from(state.markdownImages, ([id, value]) => [id, { ...value }]),
+    );
+    this.equations = new Map(
+      Array.from(state.equations, ([id, value]) => [id, { ...value }]),
+    );
+    this.mermaids = new Map(
+      Array.from(state.mermaids, ([id, value]) => [id, { ...value }]),
+    );
+    this.compatibilityMode = state.compatibilityMode;
+    this.textElementCommentedOut = state.textElementCommentedOut;
+    this.selectedElementIds = { ...state.selectedElementIds };
+    return true;
   }
 
   /**
@@ -544,6 +679,42 @@ export class ExcalidrawData {
     if (!file) {
       return false;
     }
+
+    // Parse the complete incoming scene before changing the currently loaded
+    // model. A malformed synchronized Drawing section must not leave a valid
+    // open canvas backed by an unloaded or partially cleared ExcalidrawData.
+    // Keep this as the single scene parse so safe reloads do not add CPU work.
+    const sceneJSONandPOS = getJSON(data);
+    if (sceneJSONandPOS.pos === -1) {
+      throw new Error("Excalidraw JSON not found in the file");
+    }
+    let parsedScene: ExcalidrawDataScene | null = null;
+
+    // In compatibility mode if the .excalidraw file was more recently updated than the .md file, then the .excalidraw file
+    // should be loaded as the scene.
+    // This feature is mostly likely only relevant to people who use Obsidian and Logseq on the same vault and edit .excalidraw
+    // drawings in Logseq.
+    if (this.plugin.settings.syncExcalidraw) {
+      const excalfile = `${file.path.substring(
+        0,
+        file.path.lastIndexOf(".md"),
+      )}.excalidraw`;
+      const f = this.app.vault.getAbstractFileByPath(excalfile);
+      if (f && f instanceof TFile && f.stat.mtime > file.stat.mtime) {
+        //the .excalidraw file is newer then the .md file
+        const d = await this.app.vault.read(f);
+        parsedScene = JSON.parse(d) as ExcalidrawDataScene;
+      }
+    }
+    if (!parsedScene) {
+      // Workaround for files merged by sync where one version is still an old
+      // markdown drawing without the fenced code block.
+      parsedScene = JSON_parse(sceneJSONandPOS.scene);
+    }
+    if (!Array.isArray(parsedScene?.elements)) {
+      throw new Error("Invalid Excalidraw scene: elements array is missing");
+    }
+
     this.loaded = false;
     this.selectedElementIds = {};
     this.textElements = new Map<
@@ -569,52 +740,13 @@ export class ExcalidrawData {
     this.setAutoexportPreferences();
     this.setembeddableThemePreference();
 
-    this.scene = null;
-
-    //In compatibility mode if the .excalidraw file was more recently updated than the .md file, then the .excalidraw file
-    //should be loaded as the scene.
-    //This feature is mostly likely only relevant to people who use Obsidian and Logseq on the same vault and edit .excalidraw
-    //drawings in Logseq.
-    if (this.plugin.settings.syncExcalidraw) {
-      const excalfile = `${file.path.substring(
-        0,
-        file.path.lastIndexOf(".md"),
-      )}.excalidraw`;
-      const f = this.app.vault.getAbstractFileByPath(excalfile);
-      if (f && f instanceof TFile && f.stat.mtime > file.stat.mtime) {
-        //the .excalidraw file is newer then the .md file
-        const d = await this.app.vault.read(f);
-        this.scene = JSON.parse(d) as ExcalidrawDataScene;
-      }
-    }
+    this.scene = parsedScene;
 
     // https://github.com/zsviczian/obsidian-excalidraw-plugin/issues/396
-    let sceneJSONandPOS = null;
-    const loadJSON = (): { scene: string; pos: number } => {
-      //Load scene: Read the JSON string after "# Drawing"
-      const sceneJSONandPOS = getJSON(data);
-      if (sceneJSONandPOS.pos === -1) {
-        throw new Error("Excalidraw JSON not found in the file");
-      }
-      if (!this.scene) {
-        this.scene = JSON_parse(sceneJSONandPOS.scene); //this is a workaround to address when files are mereged by sync and one version is still an old markdown without the codeblock ```
-      }
-      return sceneJSONandPOS;
-    };
-    sceneJSONandPOS = loadJSON();
     const parsedMarkdownImages = parseMarkdownImages(data);
-    this.scene.elements.forEach((element: ExcalidrawElement) => {
-      const markdownImageData = element.customData?.[
-        MARKDOWN_IMAGE_CUSTOM_DATA_KEY
-      ] as MarkdownImageCustomData | undefined;
-      if (
-        element.type === "image" &&
-        markdownImageData?.source === "local" &&
-        !parsedMarkdownImages.has(element.fileId)
-      ) {
-        this.plugin.markdownImagesMaster.delete(element.fileId);
-      }
-    });
+    // A missing block is local to this drawing. Do not delete the shared
+    // clipboard source: another open drawing may still own valid Markdown for
+    // the same copied fileId.
     parsedMarkdownImages.forEach((value, fileId) =>
       this.setMarkdownImage(fileId, value),
     );
@@ -1111,17 +1243,35 @@ export class ExcalidrawData {
     return dirty;
   }
 
-  private updateElementLinksFromScene() {
+  private getSceneElementIndexes(): SceneElementIndexes {
+    const linkedNonTextElementsById = new Map<string, ExcalidrawElement>();
+    const textElementsById = new Map<
+      string,
+      Mutable<ExcalidrawTextElement>
+    >();
+
+    for (const element of this.scene.elements) {
+      if (element.type === "text") {
+        if (!textElementsById.has(element.id)) {
+          textElementsById.set(element.id, element);
+        }
+      } else if (element.link && !linkedNonTextElementsById.has(element.id)) {
+        linkedNonTextElementsById.set(element.id, element);
+      }
+    }
+
+    return { linkedNonTextElementsById, textElementsById };
+  }
+
+  private updateElementLinksFromScene(
+    linkedNonTextElementsById: Map<string, ExcalidrawElement>,
+  ) {
     for (const key of this.elementLinks.keys()) {
-      //find element in the scene
-      const el = this.scene.elements?.filter(
-        (el: ExcalidrawElement) =>
-          el.type !== "text" && el.id === key && el.link, //&&
-      );
-      if (el.length === 0) {
+      const element = linkedNonTextElementsById.get(key);
+      if (!element) {
         this.elementLinks.delete(key); //if no longer in the scene, delete the text element
       } else {
-        this.elementLinks.set(key, el[0].link);
+        this.elementLinks.set(key, element.link);
       }
     }
   }
@@ -1130,21 +1280,20 @@ export class ExcalidrawData {
    * update text element map by deleting entries that are no long in the scene
    * and updating the textElement map based on the text updated in the scene
    */
-  private async updateTextElementsFromScene() {
+  private async updateTextElementsFromScene(
+    sceneTextElementsById: Map<string, Mutable<ExcalidrawTextElement>>,
+  ) {
     for (const key of this.textElements.keys()) {
-      //find text element in the scene
-      const el = this.scene.elements?.filter(
-        (el: ExcalidrawElement) => el.type === "text" && el.id === key,
-      ) as Mutable<ExcalidrawTextElement>[];
-      if (el.length === 0) {
+      const element = sceneTextElementsById.get(key);
+      if (!element) {
         this.textElements.delete(key); //if no longer in the scene, delete the text element
       } else {
         const text = await this.getText(key);
         const raw =
           this.scene.prevTextMode === TextMode.parsed
-            ? el[0].rawText
-            : (el[0].originalText ?? el[0].text);
-        if (text !== (el[0].originalText ?? el[0].text)) {
+            ? element.rawText
+            : (element.originalText ?? element.text);
+        if (text !== (element.originalText ?? element.text)) {
           const parseRes = await this.parse(text);
           this.textElements.set(key, {
             raw,
@@ -1384,20 +1533,29 @@ export class ExcalidrawData {
       outString += `\n^_dummy!_\n\n`;
     }
     const textElementLinks = new Map<string, string>();
+    const uniqueSceneElementsById = new Map<
+      string,
+      ExcalidrawElement | null
+    >();
+    for (const element of this.scene.elements) {
+      uniqueSceneElementsById.set(
+        element.id,
+        uniqueSceneElementsById.has(element.id) ? null : element,
+      );
+    }
     for (const key of this.textElements.keys()) {
       //https://github.com/zsviczian/obsidian-excalidraw-plugin/issues/566
-      const element = this.scene.elements.filter(
-        (el: ExcalidrawElement) => el.id === key,
-      ) as Mutable<ExcalidrawTextElement>[];
+      const element = uniqueSceneElementsById.get(key) as Mutable<
+        ExcalidrawTextElement
+      > | null;
       const elementString = this.textElements.get(key).raw;
       if (
         element &&
-        element.length === 1 &&
-        element[0].link &&
-        (!syncTextLinks || element[0].rawText === element[0].originalText)
+        element.link &&
+        (!syncTextLinks || element.rawText === element.originalText)
       ) {
         //if(element[0].link.match(/^\[\[[^\]]*]]$/g)) { //apply this only to markdown links
-        textElementLinks.set(key, element[0].link);
+        textElementLinks.set(key, element.link);
         //elementString = `%%***>>>text element-link:${element[0].link}<<<***%%` + elementString;
         //}
       }
@@ -1475,11 +1633,11 @@ export class ExcalidrawData {
       sceneJSONstring,
       this.disableCompression ? false : this.plugin.settings.compress,
     );
-    const result =
+    return (
       outString +
       (this.textElementCommentedOut ? "" : "%%\n") +
-      drawingSection;
-    return result;
+      drawingSection
+    );
   }
 
   generateMDSync(deletedElements: ExcalidrawElement[] = []): string {
@@ -1488,11 +1646,11 @@ export class ExcalidrawData {
       sceneJSONstring,
       this.disableCompression ? false : this.plugin.settings.compress,
     );
-    const result =
+    return (
       outString +
       (this.textElementCommentedOut ? "" : "%%\n") +
-      drawingSection;
-    return result;
+      drawingSection
+    );
   }
 
   public async saveDataURLtoVault(
@@ -1601,36 +1759,72 @@ export class ExcalidrawData {
     const scene = this.scene;
 
     //remove files and equations that no longer have a corresponding image element
-    const images = scene.elements.filter(
-      (e) => e.type === "image",
-    ) as ExcalidrawImageElement[];
-    const fileIds = images.map((e) => e.fileId);
+    const images: Mutable<ExcalidrawImageElement>[] = [];
+    const fileIds: FileId[] = [];
+    const imagesByFileId = new Map<
+      FileId,
+      Mutable<ExcalidrawImageElement>[]
+    >();
+    const localMarkdownFileIds = new Set<FileId>();
+    for (const element of scene.elements) {
+      if (element.type !== "image") {
+        continue;
+      }
+      const markdownImageData = element.customData?.[
+        MARKDOWN_IMAGE_CUSTOM_DATA_KEY
+      ] as MarkdownImageCustomData | undefined;
+      if (markdownImageData?.source === "local") {
+        localMarkdownFileIds.add(element.fileId);
+      }
+      images.push(element);
+      fileIds.push(element.fileId);
+      const imagesForFile = imagesByFileId.get(element.fileId);
+      if (imagesForFile) {
+        imagesForFile.push(element);
+      } else {
+        imagesByFileId.set(element.fileId, [element]);
+      }
+    }
+    const fileIdSet = new Set(imagesByFileId.keys());
     this.files.forEach((value, key) => {
-      if (!fileIds.contains(key)) {
+      if (!fileIdSet.has(key)) {
         this.files.delete(key);
         dirty = true;
       }
     });
 
     this.equations.forEach((value, key) => {
-      if (!fileIds.contains(key)) {
+      if (!fileIdSet.has(key)) {
         this.equations.delete(key);
         dirty = true;
       }
     });
 
     this.mermaids.forEach((value, key) => {
-      if (!fileIds.contains(key)) {
+      if (!fileIdSet.has(key)) {
         this.mermaids.delete(key);
         dirty = true;
       }
     });
 
     this.markdownImages.forEach((value, key) => {
-      if (!fileIds.contains(key)) {
+      if (!fileIdSet.has(key)) {
         this.markdownImages.delete(key);
         dirty = true;
       }
+    });
+
+    // The element metadata is authoritative for source type. A local Markdown
+    // image may retain stale per-view entries after changing its source. Clear
+    // those incompatible entries, but do not restore from the plugin-wide
+    // clipboard registry here: onPaste owns clipboard import, while an ordinary
+    // reload must respect Markdown text deliberately removed from the note.
+    // This is registry bookkeeping within an already-authorized save and does
+    // not require loadDrawing() to republish the unchanged scene files.
+    localMarkdownFileIds.forEach((fileId) => {
+      this.files.delete(fileId);
+      this.equations.delete(fileId);
+      this.mermaids.delete(fileId);
     });
 
     //check if there are any images that need to be processed in the new scene
@@ -1644,9 +1838,15 @@ export class ExcalidrawData {
     //https://github.com/zsviczian/obsidian-excalidraw-plugin/issues/601
     //https://github.com/zsviczian/obsidian-excalidraw-plugin/issues/593
     //https://github.com/zsviczian/obsidian-excalidraw-plugin/issues/297
+    // Keep fileIds as the original iteration snapshot, while imagesByFileId
+    // follows mutations so each later duplicate selects only elements that
+    // still carry the original ID and the scene.files pass sees current IDs.
     const processedIds = new Set<string>();
     fileIds.forEach((fileId, idx) => {
       if (processedIds.has(fileId)) {
+        if (localMarkdownFileIds.has(fileId)) {
+          return;
+        }
         const embeddedFile = this.getFile(fileId);
         const equation = this.getEquation(fileId);
         const mermaid = this.getMermaid(fileId);
@@ -1683,19 +1883,24 @@ export class ExcalidrawData {
           return;
         }
 
-        const newId = fileid();
-        (
-          scene.elements
-            .filter((el: ExcalidrawImageElement) => el.fileId === fileId)
-            .sort((a, b) =>
-              a.updated < b.updated ? 1 : -1,
-            )[0] as Mutable<ExcalidrawImageElement>
-        ).fileId = newId as FileId;
+        const newId = fileid() as FileId;
+        const imagesForFile = imagesByFileId.get(fileId);
+        const newestImage = imagesForFile
+          .slice()
+          .sort((a, b) => (a.updated < b.updated ? 1 : -1))[0];
+        newestImage.fileId = newId;
+        imagesForFile.splice(imagesForFile.indexOf(newestImage), 1);
+        const imagesForNewId = imagesByFileId.get(newId);
+        if (imagesForNewId) {
+          imagesForNewId.push(newestImage);
+        } else {
+          imagesByFileId.set(newId, [newestImage]);
+        }
         dirty = true;
         processedIds.add(newId);
         if (embeddedFile) {
           this.setFile(
-            newId as FileId,
+            newId,
             new EmbeddedFile(
               this.plugin,
               this.file.path,
@@ -1704,7 +1909,7 @@ export class ExcalidrawData {
           );
         }
         if (equation) {
-          this.setEquation(newId as FileId, {
+          this.setEquation(newId, {
             latex: equation.latex,
             isLoaded: false,
           });
@@ -1714,28 +1919,27 @@ export class ExcalidrawData {
     });
 
     for (const key of Object.keys(scene.files)) {
+      const fileId = key as FileId;
       const fileData = scene.files[key] as (typeof scene.files)[string] & {
         name?: string;
       };
       const mermaidElements = getMermaidImageElements(
-        scene.elements.filter(
-          (el: ExcalidrawImageElement) => el.fileId === key,
-        ),
+        imagesByFileId.get(fileId) ?? [],
       );
-      if (
-        !(
-          this.hasFile(key as FileId) ||
-          this.hasEquation(key as FileId) ||
-          this.hasMermaid(key as FileId) ||
-          this.hasMarkdownImage(key as FileId) ||
-          mermaidElements.length > 0
-        )
-      ) {
+      if (localMarkdownFileIds.has(fileId)) {
+        continue;
+      }
+      const hasKnownSource =
+        this.hasFile(fileId) ||
+        this.hasEquation(fileId) ||
+        this.hasMermaid(fileId) ||
+        mermaidElements.length > 0;
+      if (!hasKnownSource) {
         dirty = true;
         await this.saveDataURLtoVault(
           fileData.dataURL,
           fileData.mimeType,
-          key as FileId,
+          fileId,
           fileData.name,
         );
       }
@@ -1754,7 +1958,9 @@ export class ExcalidrawData {
       result = await this.syncFiles();
       this.scene.files = {}; //files contains the dataURLs of files. Once synced these are all saved to disk
     }
-    this.updateElementLinksFromScene();
+    const { linkedNonTextElementsById, textElementsById } =
+      this.getSceneElementIndexes();
+    this.updateElementLinksFromScene(linkedNonTextElementsById);
     result =
       result ||
       this.syncCroppedPDFs() ||
@@ -1762,21 +1968,23 @@ export class ExcalidrawData {
       this.setUrlPrefix() ||
       this.setShowLinkBrackets() ||
       this.findNewElementLinksInScene();
-    await this.updateTextElementsFromScene();
+    await this.updateTextElementsFromScene(textElementsById);
     return result || this.findNewTextElementsInScene(selectedElementIds);
   }
 
   public async updateScene(newScene: string) {
     //console.log("Excalidraw.Data.updateScene()");
     this.scene = JSON_parse(newScene);
-    this.updateElementLinksFromScene();
+    const { linkedNonTextElementsById, textElementsById } =
+      this.getSceneElementIndexes();
+    this.updateElementLinksFromScene(linkedNonTextElementsById);
     const result =
       this.setLinkPrefix() ||
       this.setUrlPrefix() ||
       this.setShowLinkBrackets() ||
       this.setembeddableThemePreference() ||
       this.findNewElementLinksInScene();
-    await this.updateTextElementsFromScene();
+    await this.updateTextElementsFromScene(textElementsById);
     if (result || this.findNewTextElementsInScene()) {
       await this.updateSceneTextElements();
       return true;

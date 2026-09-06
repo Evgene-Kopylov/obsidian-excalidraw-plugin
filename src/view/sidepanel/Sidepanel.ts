@@ -199,11 +199,8 @@ export class ExcalidrawSidepanelView extends ItemView {
     });
     this.resolveReady?.();
     this.resolveReady = null;
-    if (this.app.workspace.layoutReady) {
-      await this.restorePersistedTabs();
-    } else {
-      await this.restorePersistedTabs();
-    }
+    this.emptyStateEl.setText("Loading Excalidraw…");
+    void this.restorePersistedTabs();
     this.updateEmptyStateVisibility();
   }
 
@@ -436,51 +433,42 @@ export class ExcalidrawSidepanelView extends ItemView {
       return this.restorePromise;
     }
     this.restorePromise = (async () => {
-      const restoreReady = await this.awaitRestoreReadiness();
-      if (!restoreReady) {
+      if (!this.plugin.settings || !this.plugin.scriptEngine) {
         this.queueRestoreRetry();
         return;
       }
-      this.loadPersistedScriptsFromSettings();
-      if (!this.persistedScripts.size) {
-        return;
-      }
-      ExcalidrawSidepanelView.restoreSilent = true;
       try {
-        for (const [scriptName, meta] of Array.from(
-          this.persistedScripts.entries(),
-        )) {
-          if (!scriptName) {
-            continue;
+        this.loadPersistedScriptsFromSettings();
+        if (!this.persistedScripts.size) {
+          return;
+        }
+        ExcalidrawSidepanelView.restoreSilent = true;
+        try {
+          for (const [scriptName, meta] of Array.from(
+            this.persistedScripts.entries(),
+          )) {
+            if (!scriptName) {
+              continue;
+            }
+            if (ExcalidrawSidepanelView.consumeScriptRestoreSkip(scriptName)) {
+              continue;
+            }
+            if (this.getTabByScript(scriptName)) {
+              continue;
+            }
+            await this.runScriptByName(scriptName, meta.title);
           }
-          if (ExcalidrawSidepanelView.consumeScriptRestoreSkip(scriptName)) {
-            continue;
-          }
-          if (this.getTabByScript(scriptName)) {
-            continue;
-          }
-          await this.runScriptByName(scriptName, meta.title);
+        } finally {
+          ExcalidrawSidepanelView.restoreSilent = false;
         }
       } finally {
-        ExcalidrawSidepanelView.restoreSilent = false;
+        this.emptyStateEl?.setText(
+          "Excalidraw sidepanel is empty. Run a panel-enabled Excalidraw script to add a panel.",
+        );
+        this.updateEmptyStateVisibility();
       }
     })();
     return this.restorePromise;
-  }
-
-  /**
-   * Waits until the minimum prerequisites for sidepanel script restoration are available.
-   * Sidepanel restoration is independent from Excalidraw view loading.
-   */
-  private async awaitRestoreReadiness(): Promise<boolean> {
-    let counter = 0;
-    while (
-      (!this.plugin.settings || !this.plugin.scriptEngine) &&
-      counter++ < 200
-    ) {
-      await sleep(50);
-    }
-    return Boolean(this.plugin.settings && this.plugin.scriptEngine);
   }
 
   /**
@@ -520,7 +508,7 @@ export class ExcalidrawSidepanelView extends ItemView {
     const previousSilent = ExcalidrawSidepanelView.restoreSilent;
     ExcalidrawSidepanelView.restoreSilent = true;
     try {
-      await this.runScriptByName(scriptName, title);
+      await this.runScriptByName(scriptName, title, "sidepanel-reload");
       const restarted = this.getTabByScript(scriptName);
       if (wasPersisted && restarted) {
         this.markTabPersistent(restarted);
@@ -533,7 +521,12 @@ export class ExcalidrawSidepanelView extends ItemView {
   /**
    * Executes a script by name to reconstruct its sidepanel tab, updating title if needed.
    */
-  private async runScriptByName(scriptName: string, title: string) {
+  private async runScriptByName(
+    scriptName: string,
+    title: string,
+    executionSource: "sidepanel-restore" | "sidepanel-reload" =
+      "sidepanel-restore",
+  ) {
     const scriptEngine = this.plugin.scriptEngine;
     if (!scriptEngine) {
       return;
@@ -548,8 +541,12 @@ export class ExcalidrawSidepanelView extends ItemView {
       return;
     }
     try {
-      const script = await this.plugin.app.vault.read(file);
-      await scriptEngine.executeScript(undefined, script, scriptName, file);
+      await scriptEngine.executeScriptFile(
+        undefined,
+        file,
+        scriptName,
+        executionSource,
+      );
       const restoredTab = this.scriptTabs.get(scriptName);
       if (restoredTab) {
         restoredTab.setTitle(title);

@@ -5,6 +5,14 @@ import { FileData, MimeType } from "src/types/embeddedFileLoaderTypes";
 import { FileId } from "@zsviczian/excalidraw/types/element/src/types";
 import ExcalidrawPlugin from "src/core/main";
 import type { ExcalidrawExtrasAPI } from "@zsviczian/excalidraw-extras-api";
+import type { MathJaxRenderOptions } from "src/types/mathJaxTypes";
+
+type Tex2DataURLWithOptions = (
+  tex: string,
+  scale?: number,
+  preamble?: string | null,
+  options?: MathJaxRenderOptions,
+) => ReturnType<ExcalidrawExtrasAPI["mathjax"]["tex2dataURL"]>;
 
 export const updateEquation = async (
   equation: string,
@@ -33,6 +41,7 @@ export async function tex2dataURL(
   tex: string,
   scale: number = 4,
   plugin: ExcalidrawPlugin,
+  options?: MathJaxRenderOptions,
 ): Promise<{
   mimeType: MimeType;
   fileId: FileId;
@@ -59,13 +68,22 @@ export async function tex2dataURL(
   }
 
   // 3. Hand the request off to the cleanly isolated Extras plugin
-  return (await mathjaxAPI.tex2dataURL(tex, scale, preambleStr)) as {
+  // The runtime component version gate guarantees this additive signature even
+  // while the separately published API typings remain on the previous version.
+  const mathjaxAPIWithOptions: { tex2dataURL: Tex2DataURLWithOptions } =
+    mathjaxAPI;
+  return (await mathjaxAPIWithOptions.tex2dataURL(
+    tex,
+    scale,
+    preambleStr,
+    options,
+  )) as {
     mimeType: MimeType;
     fileId: FileId;
     dataURL: DataURL;
     created: number;
     size: { height: number; width: number };
-  };
+  } | null;
 }
 
 export const clearMathJaxVariables = (plugin: ExcalidrawPlugin) => {

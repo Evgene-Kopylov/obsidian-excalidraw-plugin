@@ -17,11 +17,50 @@ I build this plugin as a labor of love. Curious about the philosophy behind it? 
 
 <div class="ex-coffee-div"><a href="${URLs.KO_FI_COM_ZSOLT}"><img src="${URLs.CDN_KO_FI_COM_CDN_KOFI3_PNG}" border="0" alt="Buy Me a Coffee at ko-fi.com"  height=45></a></div>
 `,
-  "2.27.0": `
+"2.27.3": `
+## Fixed and updated
+- Fixed slow vault startup when the Excalidraw Sidepanel was left open when closing Obsidian.
+- Markdown Images
+  - Local Markdown images copied between drawings now always retain their back-of-note text, render correctly after reopening, and no longer trigger repeated deletion confirmations.
+  - You can now set the default behavior for back-of-the-note text when deleting a local Markdown image. You can change or reset this choice in plugin settings.
+  - Converting local Markdown images to embeddables and back:
+    - Works more reliably during rapid edits. The Markdown image sidepanel also correctly follows the converted element.
+    - Image appearance settings are now preserved when converting an image to an embeddable and back.
+  - Unchanged Markdown images now retain their already-rendered image during scene reloads, avoiding flicker and unnecessary rendering.
+  - External Markdown image sources are now checked when a drawing regains focus and when validating cached nested drawings.
+- New command panel action: *"Refresh selected image or all images in the current drawing"*. This invalidates the image cache and regenerates the selected image or all images in the current drawing.
+- Bucket fill color palette now matches the custom palette for the element background, if available.
+- Excalidraw stroke and element background color top-picks drag and drop did not work in Obsidian popout windows.
+
 ## New
-- On Obsidian 1.13 and newer, Excalidraw now uses Obsidian's searchable, multi-page settings. Settings are organized into clearer sections with breadcrumbs, compact help links, and clickable links between related options.
-  - Prefer the previous experience? Turn off **Use searchable settings** at the top of Excalidraw settings and restart Obsidian. Older Obsidian versions continue using the legacy single-page layout automatically.
-  - Settings exposed by installed Excalidraw Automate scripts have moved to **Excalidraw Automate → Settings for installed scripts** and update when a script adds or changes its settings.
+- Slideshow script now includes an improved slide sorter, support for setting slide titles, and other UX improvements.
+- The Deconstruct selected elements script now checks for invalid characters in file names and allows deconstructed items to be saved directly in the vault root folder.
+
+## New in Excalidraw Automate
+- Excalidraw Automate scripts can now opt into strict LaTeX validation with \`{ throwOnError: true }\` in \`addLaTex()\` and \`tex2dataURL()\`. This allows scripts to catch and display MathJax errors. Requires Excalidraw Extras 0.1.0. [#2](${URLs.GITHUB_COM_ZSVICZIAN_OBSIDIAN_EXCALIDRAW_EXTRAS_ISSUES}/2)
+`,
+"2.27.2": `
+## Fixed
+- Canvas properties (tray and desktop UI modes) and the element properties (tray-mode only) were moved to the top left corner of the Obsidian workspace when changing tabs.
+- Back of the note cards did not display if the filename included "?" character on MacOS.
+
+`,
+  "2.27.1": `
+## Fixed
+- Small technical hiccup during the deployment of 2.27.0
+
+## New from Excalidraw.com
+- This unfortunate hiccup has made it possible to squeeze in one more new feature: Movable arrow labels in Excalidraw!
+`,
+  "2.27.0": `
+${getYouTubeDiv("am2HOlbYsxI")}
+
+## New
+- On Obsidian 1.13 and newer, Excalidraw now uses Obsidian's searchable, multi-page settings organized into clearer sections with breadcrumbs and clickable links between related options.
+  - If you prefer the previous experience you can turn off **Use searchable settings** at the top of Excalidraw settings and restart Obsidian. Older Obsidian versions continue using the legacy single-page layout automatically.
+  - Settings exposed by installed Excalidraw Automate scripts have moved to **Excalidraw Automate → Settings for installed scripts**.
+- Excalidraw Automate can optionally load and monitor JavaScript (\`.js\`) files in the Scripts folder, use an explicit \`.js\` ExcalidrawStartup script, and store Script Library downloads as either Markdown or JavaScript. Existing scripts can be moved between the two formats while updating startup and pinned-script paths. [#2901](${URLs.GITHUB_COM_ZSVICZIAN_OBSIDIAN_EXCALIDRAW_PLUGIN_ISSUES}/2901)
+- Markdown notes created from unresolved links in a drawing now follow Obsidian's **Default location for new notes** setting. [#2916](${URLs.GITHUB_COM_ZSVICZIAN_OBSIDIAN_EXCALIDRAW_PLUGIN_ISSUES}/2916)
 
 ## New from Excalidraw.com
 - Improved bucket tool and eyedropper support. [#11849](${URLs.GITHUB_COM_EXCALIDRAW_EXCALIDRAW_PULL}/11849)
@@ -29,29 +68,38 @@ I build this plugin as a labor of love. Curious about the philosophy behind it? 
 - Customize color-picker top picks by dragging colors onto the strip; right-click the strip to reset it. [#11872](${URLs.GITHUB_COM_EXCALIDRAW_EXCALIDRAW_PULL}/11872)
 
 ## Fixed
+- Downloading very large SVG or PNG exports now avoids base64 conversion, substantially reducing peak memory use and preventing Electron renderer crashes on image-heavy drawings.
+- Moving a dirty drawing out of a popout window now safely transfers and persists its latest edits from the replacement main-window view.
+- Converting a legacy ".excalidraw" drawing now persists its embedded images as vault attachments during conversion, before the source file can be removed. [#2898](${URLs.GITHUB_COM_ZSVICZIAN_OBSIDIAN_EXCALIDRAW_PLUGIN_ISSUES}/2898)
+- Entering text editing no longer scans and sorts the entire vault for link suggestions; file-link candidates are loaded only after typing \`[[\`. [#2907](${URLs.GITHUB_COM_ZSVICZIAN_OBSIDIAN_EXCALIDRAW_PLUGIN_ISSUES}/2907)
 - Settings changes are saved promptly without collapsing sections or interrupting fast typing. Writes are serialized, and Excalidraw keeps a device-local recovery copy so an empty or corrupted synchronized **data.json** cannot silently erase a large settings configuration.
-- Interdependent settings now initialize and refresh consistently, including TODO icons, auto-export formats, Taskbone credentials, filename previews, and custom grid colors. Built-in font previews also use the correct typeface in secondary Obsidian windows.
-- Applying a rendering-related setting no longer resets the live zoom and scroll position of an open drawing. New configurations use ☑ as the completed-TODO marker.
-- Interactive Markdown embed defaults now save filename, properties, locked-reading-mode, and background-source changes reliably.
-- The color palette uses the available height, keeps its native picker aligned, remembers customized top picks after reload, and updates popover theming immediately after a canvas background change.
 - Text-to-diagram chat history is visible again, so saved chats can be restored or deleted.
 - Stencil-library JSON is now tab-indented for cleaner Git diffs. [#2883](${URLs.GITHUB_COM_ZSVICZIAN_OBSIDIAN_EXCALIDRAW_PLUGIN_ISSUES}/2883)
 
 ## Maintenance
-- This is one of the Plugin's largest internal maintenance releases. The settings system, persistence pipeline, plugin lifecycle, runtime packaging, and several major managers were reorganized into clearer, independently maintained components. The visible workflow remains familiar, but the foundation is substantially safer for future features and fixes.
-- The embedded Excalidraw runtime now uses a modern ESM-source build and React 19 instead of the retired UMD pipeline. Offline use and popout windows remain supported; the Assistant UI font is bundled locally and Mermaid still loads on demand through Excalidraw Extras.
+- This is one of the Plugin's largest internal maintenance releases ever. The settings system, persistence pipeline, plugin lifecycle, runtime packaging, and several major managers were reorganized into clearer, independently maintained components. On the surface the plugin works as before, but the foundation is substantially safer for future features and fixes.
+- The embedded Excalidraw runtime now uses a modern ESM-source build and React 19 instead of the retired UMD pipeline.
 - Drawings with many cached embedded files load more efficiently by avoiding redundant cache rewrites, SVG reconstruction, image measurement, hashing, and normalization. Cached and direct images can appear before slower generated drawings, while drawing backups remain protected.
 - Removed unused code and the obsolete Draw.io/Diagram integration, and retired the non-functional Create DrawIO file script.
 
 ## New in Excalidraw Automate
+- Added area-bounded view exports for image-heavy scenes. \`createViewSVG()\` and the new \`createViewPNG()\` accept \`exportArea: {x, y, width, height}\`, filter out off-area elements and unused image payloads, retain required bound elements, and crop to the requested viewport. Both methods also support a complete \`elementsOverride\` export set.
+- Added \`getElementsIntersectionArea()\` for explicitly selecting elements whose rendered bounds intersect an area. The existing \`getElementsInArea()\` method remains available as a backward-compatible alias.
+- \`setView(null)\` now explicitly clears \`ea.targetView\`. Use \`setView()\` or \`setView("auto")\` when you want EA to select a sensible default drawing.
 - Scripts can register custom buttons in the selected-element context menu:
 \`\`\`ts
 registerElementActionProvider(getActions: (element: ExcalidrawElement) => readonly {id: string, title: string, icon: string, action: () => void}[]): (() => void) | null;
 \`\`\`
 - Scripts can request permission to run automatically whenever an Excalidraw view opens. Manage permissions with the **Autostart scripts** command or under Excalidraw Automate settings:
 \`\`\`ts
-registerAutostart(): Promise<"allow" | "deny" | "pending">;
+registerAutostart(message?: string): Promise<"allow" | "deny" | "pending">;
 \`\`\`
+- Pass an optional message to explain what the script does during autostart. It appears between the permission question and the settings hint.
+- Scripts can release listeners, timers, observers, and other external resources with EA-owned cleanup:
+\`\`\`ts
+registerCleanup(cleanup: () => void): () => void;
+\`\`\`
+- Scripts can distinguish \`manual\`, \`plugin-startup\`, \`view-autostart\`, \`sidepanel-restore\`, \`sidepanel-reload\`, and \`drawing-onload\` execution through \`utils.executionSource\`. Compilation caching is transparent and does not retain script runtime state.
 `,
   "2.26.4": `
 ## Fixed

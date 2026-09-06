@@ -287,7 +287,7 @@ export const EXCALIDRAW_AUTOMATE_INFO: SuggesterInfo[] = [
   },
   {
     field: "createViewSVG",
-    code: "async createViewSVG({withBackground?: boolean, theme?: 'light' | 'dark', frameRendering?: FrameRenderingOptions, padding?: number, selectedOnly?: boolean, skipInliningFonts?: boolean, embedScene?: boolean}): Promise<SVGSVGElement>",
+    code: "async createViewSVG({withBackground?: boolean, theme?: 'light' | 'dark', frameRendering?: FrameRenderingOptions, padding?: number, selectedOnly?: boolean, skipInliningFonts?: boolean, embedScene?: boolean, elementsOverride?: readonly ExcalidrawElement[], exportArea?: ViewExportArea}): Promise<SVGSVGElement>",
     desc:
       "Creates an SVG representation of the current view with specified options.\n" +
       "\n" +
@@ -299,6 +299,8 @@ export const EXCALIDRAW_AUTOMATE_INFO: SuggesterInfo[] = [
       "@param {boolean} [options.selectedOnly=false] - Whether to include only the selected elements in the SVG.\n" +
       "@param {boolean} [options.skipInliningFonts=false] - Whether to skip inlining fonts in the SVG.\n" +
       "@param {boolean} [options.embedScene=false] - Whether to embed the scene in the SVG.\n" +
+      "@param {readonly ExcalidrawElement[]} [options.elementsOverride] - Complete replacement for the exported elements. It is not merged with the current scene or treated as a patch by ID. Include every element that should appear in the SVG.\n" +
+      "@param {ViewExportArea} [options.exportArea] - Filters elements to an exact scene rectangle and anchors the SVG to that viewport.\n" +
       "@returns {Promise<SVGSVGElement>} A promise that resolves to the SVG element.\n" +
       "\n" +
       "@typedef {Object} FrameRenderingOptions\n" +
@@ -315,6 +317,21 @@ export const EXCALIDRAW_AUTOMATE_INFO: SuggesterInfo[] = [
       "  selectedOnly: false,\n" +
       "  skipInliningFonts: false,\n" +
       "  embedScene: false,\n" +
+      "  // elementsOverride: ea.getElements(), // Must contain the complete export set.\n" +
+      "  // exportArea: { x: 0, y: 0, width: 1920, height: 1080 },\n" +
+      "});",
+  },
+  {
+    field: "createViewPNG",
+    code: "async createViewPNG({withBackground?: boolean, theme?: 'light' | 'dark', frameRendering?: FrameRenderingOptions, padding?: number, selectedOnly?: boolean, embedScene?: boolean, elementsOverride?: readonly ExcalidrawElement[], exportArea?: ViewExportArea, scale?: number}): Promise<Blob>",
+    desc:
+      "Creates a PNG from the currently active Excalidraw view without using or modifying the EA workbench.\n" +
+      "elementsOverride is a complete replacement for the view elements. exportArea filters that candidate set and anchors the image to an exact scene rectangle. The optional scale controls raster resolution.",
+    after:
+      "({\n" +
+      "  withBackground: true,\n" +
+      "  exportArea: { x: 0, y: 0, width: 1920, height: 1080 },\n" +
+      "  scale: 0.5,\n" +
       "});",
   },
   {
@@ -464,14 +481,14 @@ export const EXCALIDRAW_AUTOMATE_INFO: SuggesterInfo[] = [
   },
   {
     field: "addLaTex",
-    code: "async addLaTex(topX: number, topY: number, tex: string): Promise<string>;",
-    desc: "This is an async function, you need to avait the results. Adds a LaTex element to the drawing. The tex string is the LaTex code. The function returns the id of the created element.",
+    code: "async addLaTex(topX: number, topY: number, tex: string, scaleX: number = 1, scaleY: number = 1, options?: {throwOnError?: boolean}): Promise<string>;",
+    desc: "This is an async function; await the result. Adds a LaTeX element to the drawing and returns its ID. Set options.throwOnError to true to catch invalid LaTeX errors in your script.",
     after: "",
   },
   {
     field: "tex2dataURL",
-    code: "async tex2dataURL(tex: string, scale: number = 4): Promise<{mimeType: MimeType;fileId: FileId;dataURL: DataURL;created: number;size: { height: number; width: number };}> ",
-    desc: "returns the base64 dataURL of the LaTeX equation rendered as an SVG. tex is the LaTeX equation string",
+    code: "async tex2dataURL(tex: string, scale: number = 4, options?: {throwOnError?: boolean}): Promise<{mimeType: MimeType;fileId: FileId;dataURL: DataURL;created: number;size: { height: number; width: number };}> ",
+    desc: "Returns the base64 dataURL of the LaTeX equation rendered as an SVG. Set options.throwOnError to true to catch invalid LaTeX errors in your script.",
     after: "",
   },
   {
@@ -506,24 +523,25 @@ export const EXCALIDRAW_AUTOMATE_INFO: SuggesterInfo[] = [
   },
   {
     field: "targetView",
-    code: "targetView: ExcalidrawView;",
-    desc: "The Obsidian view currently edited",
+    code: "targetView: ExcalidrawView | null;",
+    desc: "The targeted Obsidian Excalidraw view, or null when EA is unbound",
     after: "",
   },
   {
     field: "setView",
-    code: 'setView(view?: ExcalidrawView | "auto" | "first" | "active" | null, show: boolean = false): ExcalidrawView;',
+    code: 'setView(view?: ExcalidrawView | "auto" | "first" | "active" | null, show: boolean = false): ExcalidrawView | null;',
     desc:
       "Sets the target view for EA. All the view operations and the access to Excalidraw API will be performed on this view. " +
-      "Typically you will use setView() (to pick a sensible default) or setView(excalidrawView) (to explicitly target a specific view).\n" +
+      "Typically you will use setView() (to pick a sensible default), setView(excalidrawView) (to explicitly target a specific view), or setView(null) (to explicitly clear targetView).\n" +
       '"auto" is equivalent to calling setView() and can read nicer when you want to show the view (e.g. setView("auto", true)).\n' +
       '"active" and "first" are deprecated and are kept for backward compatibility.\n' +
-      'If view is null or undefined (or "auto"), EA will pick a sensible default: first the currently active Excalidraw view (if any), otherwise the last active Excalidraw view (if it is still available), otherwise the "first" Excalidraw view in the workspace.\n' +
+      'If view is undefined (or "auto"), EA will pick a sensible default: first the currently active Excalidraw view (if any), otherwise the last active Excalidraw view (if it is still available), otherwise the "first" Excalidraw view in the workspace.\n' +
+      "If view is explicitly null, EA clears targetView. This is useful when a sidepanel becomes unbound because focus moved to a Markdown view or no drawing is eligible.\n" +
       "If show is true, the view will be brought to front and focused.\n" +
       'If "first" is provided, the target will be the first Excalidraw view returned by Obsidian\'s workspace leaf collection (i.e., the first item in getExcalidrawViews()). ' +
       "This ordering is managed by Obsidian and does not necessarily match what a user would consider the “first” view; from a user's perspective it may appear random.\n" +
       'If "active" is provided, the currently active Excalidraw view in the workspace will be used. If that is not available, then the last active Excalidraw view will be used.\n' +
-      "The function returns the ExcalidrawView that was set as targetView.",
+      "The function returns the ExcalidrawView that was set as targetView, or null when cleared or no view was found.",
     after: '("auto",true);',
   },
   {
@@ -687,8 +705,14 @@ export const EXCALIDRAW_AUTOMATE_INFO: SuggesterInfo[] = [
   },
   {
     field: "getElementsInArea",
-    code: "getElementsInArea(elements: ExcalidrawElement[], area: {x: number, y: number, width: number, height: number}): ExcalidrawElement[];",
-    desc: "Filter the elements and returns only those within the specific area.",
+    code: "getElementsInArea(elements: readonly ExcalidrawElement[], area: {x: number, y: number, width: number, height: number, id?: string}, options?: {margin?: number, includeMarkerFrames?: boolean, includeBoundElements?: boolean}): ExcalidrawElement[];",
+    desc: "Returns elements whose rendered bounds intersect the area, preserving source stacking order. Marker frames remain excluded by default for backward compatibility. Optional binding expansion includes containers, bound elements, and arrow binding targets.",
+    after: "",
+  },
+  {
+    field: "getElementsIntersectionArea",
+    code: "getElementsIntersectionArea(elements: readonly ExcalidrawElement[], area: {x: number, y: number, width: number, height: number, id?: string}, options?: {margin?: number, includeMarkerFrames?: boolean, includeBoundElements?: boolean}): ExcalidrawElement[];",
+    desc: "Preferred explicit name for selecting elements whose rendered bounds intersect an area. It shares the implementation and behavior of the backward-compatible getElementsInArea() API.",
     after: "",
   },
   {
@@ -997,12 +1021,23 @@ export const EXCALIDRAW_AUTOMATE_INFO: SuggesterInfo[] = [
     after: "",
   },
   {
+    field: "registerCleanup",
+    code: "registerCleanup(cleanup: () => void): () => void;",
+    desc:
+      "Registers synchronous cleanup owned by this ExcalidrawAutomate instance. " +
+      "Use it for external Obsidian or DOM listeners, observers, timers, and subscriptions. " +
+      "The callback runs when this EA is destroyed; the returned function unregisters it without running it. " +
+      "The exact lifetime depends on the lifecycle that created the EA.",
+    after: "(() => releaseExternalResource());",
+  },
+  {
     field: "registerElementActionProvider",
     code:
       "registerElementActionProvider(getActions: (element: ExcalidrawElement) => readonly {id: string, title: string, icon: string, action: () => void}[]): (() => void) | null;",
     desc:
       "Registers custom action buttons in the selected-element context menu (the small toolbar shown above a single selected element). " +
       "getActions is called with the selected element whenever the selection, element type, fileId, or customData changes; return an empty array to show nothing. " +
+      "The menu is temporarily hidden while the selected frame title is being edited. " +
       "Registration is cleared automatically when the view closes, and cleared for this script specifically if the script's file is deleted while the view is still open. " +
       "Calling this again for the same script in the same view (e.g. running the script again while it is already registered) does not create a duplicate - it is a no-op that returns null. " +
       "Returns a cleanup function to unregister manually, or null if there is no active target view or this script is already registered in it.",
@@ -1010,13 +1045,14 @@ export const EXCALIDRAW_AUTOMATE_INFO: SuggesterInfo[] = [
   },
   {
     field: "registerAutostart",
-    code: 'registerAutostart(): Promise<"allow" | "deny" | "pending">;',
+    code: 'registerAutostart(message?: string): Promise<"allow" | "deny" | "pending">;',
     desc:
       "Requests permission for this script to be automatically re-run every time a new Excalidraw view is opened. " +
+      "The optional message is shown as a separate second paragraph after the permission question and before the hint explaining where the permission can be changed. Use it to clarify what the script registers or performs during autostart. " +
       "The first time a given script calls this, the user is prompted to Allow, Deny, or decide later; the decision persists and is not asked again unless the user changes it (via the \"Autostart scripts\" command or settings section) or previously picked \"Ask me later\". " +
       "A fresh Allow also immediately re-runs the script in every other currently-open Excalidraw view, so it attaches everywhere right away instead of only the next time each view is opened. " +
-      'Returns "allow", "deny", or "pending" (no active script, or the user has not yet decided). Typically called near the top of a script, guarding whatever the script wants to re-register on autostart, e.g. registerElementActionProvider().',
-    after: "();",
+      'Returns "allow", "deny", or "pending" (no active script, or the user has not yet decided). Typically called near the top of a script, guarding whatever the script wants to re-register on autostart, e.g. registerElementActionProvider(). Use utils.executionSource === "view-autostart" when only the view-autostart execution should stop after registration.',
+    after: '("Autostart registers this script’s drawing tools; it does not run its main action.");',
   },
   {
     field: "getSidepanelLeaf",
@@ -1411,6 +1447,15 @@ export const EXCALIDRAW_SCRIPTENGINE_INFO: SuggesterInfo[] = [
     field: "scriptFile",
     code: "scriptFile: TFile",
     desc: "The TFile of the currently running script",
+    after: "",
+  },
+  {
+    field: "executionSource",
+    code: 'executionSource: "manual" | "plugin-startup" | "view-autostart" | "sidepanel-restore" | "sidepanel-reload" | "drawing-onload"',
+    desc:
+      "Identifies why the script engine invoked the current script. " +
+      'Use "view-autostart" for registration-only setup, while "manual" covers the script button, command palette, and hotkey. ' +
+      "This value describes the trigger, not compilation-cache reuse or retained runtime state.",
     after: "",
   },
 ];

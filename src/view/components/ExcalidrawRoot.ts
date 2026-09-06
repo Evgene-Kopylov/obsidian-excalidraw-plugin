@@ -3,7 +3,6 @@ import {
   ExcalidrawInitialDataState,
 } from "@zsviczian/excalidraw/types/excalidraw/types";
 import { ExcalidrawElement } from "@zsviczian/excalidraw/types/element/src/types";
-
 import { DEVICE, obsidianToExcalidrawMap } from "../../constants/constants";
 import { t } from "../../lang/helpers";
 import { isMarkdownImageElement } from "../../shared/MarkdownImage";
@@ -163,6 +162,7 @@ export function createExcalidrawRootElement(
       React.createElement(
         Excalidraw,
         {
+          ownerDocument: view.ownerDocument,
           onExcalidrawAPI: (api) => view.setExcalidrawAPI(api),
           onInitialize: (api) => view.onExcalidrawInitialize(api),
           UIOptions: {

@@ -205,6 +205,15 @@ export default {
     "是否刪除為此圖像儲存的 Markdown 文字？無論如何，該圖像都會從場景中移除。",
   MARKDOWN_IMAGE_KEEP_TEXT: "保留 Markdown 文字",
   MARKDOWN_IMAGE_DELETE_TEXT: "刪除 Markdown 文字",
+  MARKDOWN_IMAGE_REMEMBER_DELETE_CHOICE: "將此選擇用於今後的刪除操作",
+  MARKDOWN_IMAGE_REMEMBER_DELETE_CHOICE_DESC:
+    '在 Excalidraw 外掛設定中，將「本地 Markdown 影像刪除」重設為「每次詢問」。',
+  MARKDOWN_IMAGE_DELETE_BEHAVIOR_NAME: "本地 Markdown 影像刪除",
+  MARKDOWN_IMAGE_DELETE_BEHAVIOR_DESC:
+    "選擇刪除本地 Markdown 影像時是否同時刪除其筆記背面的 Markdown 文字。",
+  MARKDOWN_IMAGE_DELETE_BEHAVIOR_ASK: "每次詢問",
+  MARKDOWN_IMAGE_DELETE_BEHAVIOR_KEEP: "保留文字，不再詢問",
+  MARKDOWN_IMAGE_DELETE_BEHAVIOR_DELETE: "刪除文字，不再詢問",
   INSERT_PDF: "以影像形式嵌入 PDF 到當前繪圖中",
   INSERT_LAST_ACTIVE_PDF_PAGE_AS_IMAGE: "以影像形式嵌入最後啟用的 PDF 頁面",
   UNIVERSAL_ADD_FILE: "嵌入檔案 / Insert ANY file",
@@ -262,6 +271,8 @@ export default {
   ERROR_CANT_READ_FILEPATH: "錯誤，無法讀取檔案路徑。正在改為匯入檔案",
   NO_SEARCH_RESULT: "在繪圖中未找到匹配的元素",
   FORCE_SAVE_ABORTED: "自動儲存被中止，因為檔案正在儲存中",
+  DRAWING_RELOAD_FAILED:
+    "Excalidraw 拒絕了無效的傳入繪圖資料。當前畫布上開啟的繪圖已保留。請在關閉此檢視前儲存或匯出它，並檢查同步檔案或其版本歷史記錄。",
   LINKLIST_SECOND_ORDER_LINK: "二級連結",
   MARKDOWN_EMBED_CUSTOMIZE_LINK_PROMPT_TITLE: "自定義嵌入檔案連結",
   MARKDOWN_EMBED_CUSTOMIZE_LINK_PROMPT:
@@ -1061,14 +1072,14 @@ export default {
     "選擇匯出影像的背景和主題，以及預覽是否跟隨 Obsidian 主題。",
   EMBED_IMAGE_CACHE_NAME: "為嵌入到 Markdown 文件中的繪圖建立預覽圖快取",
   EMBED_IMAGE_CACHE_DESC:
-    "可提高下次嵌入的速度。" +
-    "但如果繪圖包含子繪圖，（當子繪圖改變時）預覽圖不會更新，直到您開啟繪圖並手動儲存。",
+    "快取用於嵌入 Markdown 的影像。繪圖或其巢狀的倉庫檔案相依項發生變化時，快取的繪圖會重新整理。",
   SCENE_IMAGE_CACHE_NAME: "快取場景中巢狀的繪圖",
   SCENE_IMAGE_CACHE_DESC:
-    "Excalidraw 將智慧地嘗試識別巢狀的繪圖的子元素是否發生變化，並更新快取。" +
+    "Excalidraw 會識別巢狀繪圖及其嵌入倉庫檔案來源的變化，並相應更新快取。" +
     "這將加快渲染過程，特別是在您的場景中有深度巢狀的繪圖時。<br>" +
     "如果您懷疑快取未能正確更新，您可能需要關閉此功能。",
   EMBED_IMAGE_CACHE_CLEAR: "清除快取",
+  REFRESH_SCENE_IMAGES: "重新整理目前繪圖中的選取影像或所有影像",
   BACKUP_CACHE_CLEAR: "清除備份",
   BACKUP_CACHE_CLEAR_CONFIRMATION:
     "該操作將刪除所有繪圖檔案的備份。備份是繪圖檔案損壞時的一種補救手段。每次您開啟 Obsidian 時，本外掛會自動清理無用的備份。您確定要現在刪除所有備份嗎？",
@@ -1237,6 +1248,33 @@ export default {
   FIELD_SUGGESTER_DESC:
     "開啟後，當您在編輯器中輸入 <code>excalidraw-</code> 或者 <code>ea.</code> 時，會彈出一個帶有函式說明的自動補全提示選單。<br>" +
     "該功能借鑑了 Breadcrumbs 和 Templater 外掛。",
+  ALLOW_JS_FILES_NAME: "從 Scripts 資料夾載入 JavaScript 檔案",
+  ALLOW_JS_FILES_DESC:
+    "啟用後，Excalidraw Automate 會監視並執行 Scripts 資料夾中的 <code>.js</code> 檔案，也允許使用 <code>.js</code> 啟動指令碼。" +
+    "預設情況下，Obsidian Sync 不會同步非 Markdown 檔案，Obsidian 不會開啟 <code>.js</code> 檔案進行編輯，檔案總管也會隱藏它們。需要時請在 Obsidian 中啟用<b>同步所有其他檔案類型</b>和<b>顯示所有檔案類型</b>。如果存在同名的 <code>.md</code> 和 <code>.js</code> 指令碼，將使用 Markdown 檔案。",
+  STORE_SCRIPTS_AS_JS_NAME: "將下載的指令碼儲存為",
+  STORE_SCRIPTS_AS_JS_DESC:
+    "選擇指令碼庫新下載與更新在本機使用的檔案類型。無論遠端來源是 <code>.md</code> 或 <code>.js</code>，都會使用此設定。",
+  SCRIPT_FILE_EXTENSION_MARKDOWN: "Markdown (.md)",
+  SCRIPT_FILE_EXTENSION_JAVASCRIPT: "JavaScript (.js)",
+  MIGRATE_SCRIPT_FILES_NAME: "遷移現有指令碼檔案",
+  MIGRATE_SCRIPTS_TO_JS_BUTTON: "將現有指令碼遷移為 .js",
+  MIGRATE_SCRIPTS_TO_MD_BUTTON: "將現有指令碼遷移為 .md",
+  MIGRATE_SCRIPT_FILES_STATUS:
+    "有 {eligible} 個指令碼檔案可遷移為 {extension}。{skipped}",
+  MIGRATE_SCRIPT_FILES_CONFIRM:
+    "繼續前請先備份儲存庫。<br><br><b>{count}</b> 個指令碼檔案將重新命名為 <code>{extension}</code>，釘選指令碼的路徑也會更新。{startup} {skipped}",
+  MIGRATE_SCRIPT_FILES_STARTUP_INCLUDED:
+    "已設定的啟動指令碼及其設定也會更新。",
+  MIGRATE_SCRIPT_FILES_SKIPPED:
+    "有 {count} 對同名 .md/.js 檔案不會被遷移。",
+  MIGRATE_SCRIPT_FILES_SKIPPED_DETAILS:
+    "因目標檔案已存在，已略過 {count} 個指令碼檔案：\n{files}",
+  MIGRATE_SCRIPT_FILES_NONE: "找不到可遷移的指令碼檔案。",
+  MIGRATE_SCRIPT_FILES_COMPLETE:
+    "已將 {count} 個指令碼檔案遷移為 {extension}。",
+  MIGRATE_SCRIPT_FILES_FAILED:
+    "無法遷移指令碼檔案。已盡可能回復完成的重新命名。",
   ENABLE_ONLOAD_SCRIPTS_NAME: "載入期指令碼（onload）",
   ENABLE_ONLOAD_SCRIPTS_CONFIRMATION:
     "此檔案包含 <code>excalidraw-onload-script</code>。是否啟用載入期指令碼？",
@@ -1268,9 +1306,10 @@ export default {
     "如果你開啟未知來源的繪圖，這會帶來風險：惡意繪圖可以讓一次普通點選觸發高許可權命令。" +
     "只有在你信任該檔案及其來源時才啟用此功能。",
   STARTUP_SCRIPT_NAME: "啟動期指令碼（startup）",
+  STARTUP_SCRIPT_JS_DISABLED:
+    "JavaScript 啟動指令碼已停用。請先在 Excalidraw Automate 設定中啟用 JavaScript 檔案。",
   STARTUP_SCRIPT_DESC:
-    "外掛啟動時將自動執行該指令碼。可用於設定 Excalidraw 自動化鉤子。" +
-    "該指令碼是包含 javascript 程式碼的 Markdown 檔案。",
+    "外掛啟動時將自動執行該指令碼，可用於設定 Excalidraw Automate 鉤子。沒有副檔名的路徑使用 Markdown 檔案；啟用 JavaScript 檔案載入後可使用 <code>.js</code> 檔案。",
   STARTUP_SCRIPT_BUTTON_CREATE: "建立啟動期指令碼",
   STARTUP_SCRIPT_BUTTON_OPEN: "開啟啟動期指令碼",
   FILETYPE_NAME: "在檔案瀏覽器中為 excalidraw.md 檔案新增型別識別符號（如 ✏️）",

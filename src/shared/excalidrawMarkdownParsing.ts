@@ -243,6 +243,16 @@ export function syncMarkdownImagesInHeader(
       updated.slice(block.bodyEnd);
   }
 
+  updated = updated
+    .replace(
+      /(^# Markdown Images[ \t]*\r?\n)(?:[ \t]*\r?\n)+(?=<!-- excalidraw-markdown-image:)/m,
+      `$1\n`,
+    )
+    .replace(
+      /(<!-- \/excalidraw-markdown-image:[\w-]+ -->)[ \t]*(?:\r?\n[ \t]*)+(?=<!-- excalidraw-markdown-image:)/g,
+      `$1\n\n`,
+    );
+
   const missing = [...markdownImages.entries()].filter(
     ([fileId]) => !existingIds.has(fileId),
   );

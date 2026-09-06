@@ -1,9 +1,8 @@
 /**
- * Browser entry for the private React runtime used by Excalidraw.
+ * Browser entry for the private React runtime shared by all Excalidraw views.
  *
- * The plugin evaluates the generated artifact in a private function scope once
- * per Obsidian window. Keep these exports aligned with the lexical externals
- * configured by the Excalidraw `build:obsidian` package target.
+ * Keep these exports aligned with the lexical externals configured by the
+ * Excalidraw `build:obsidian` package target.
  */
 import React from "react";
 import ReactDOMLegacy from "react-dom";

@@ -235,6 +235,16 @@ export default {
     "¿Eliminar el texto Markdown guardado para esta imagen? La imagen se eliminará de la escena en cualquier caso.",
   MARKDOWN_IMAGE_KEEP_TEXT: "Conservar texto Markdown",
   MARKDOWN_IMAGE_DELETE_TEXT: "Eliminar texto Markdown",
+  MARKDOWN_IMAGE_REMEMBER_DELETE_CHOICE:
+    "Usar esta opción para futuras eliminaciones",
+  MARKDOWN_IMAGE_REMEMBER_DELETE_CHOICE_DESC:
+    'Restablece “Eliminación de imágenes Markdown locales” a “Preguntar cada vez” en los ajustes del plugin de Excalidraw.',
+  MARKDOWN_IMAGE_DELETE_BEHAVIOR_NAME: "Eliminación de imágenes Markdown locales",
+  MARKDOWN_IMAGE_DELETE_BEHAVIOR_DESC:
+    "Elige si al eliminar una imagen Markdown local también se elimina su texto Markdown del reverso de la nota.",
+  MARKDOWN_IMAGE_DELETE_BEHAVIOR_ASK: "Preguntar cada vez",
+  MARKDOWN_IMAGE_DELETE_BEHAVIOR_KEEP: "Conservar el texto sin preguntar",
+  MARKDOWN_IMAGE_DELETE_BEHAVIOR_DELETE: "Eliminar el texto sin preguntar",
   INSERT_PDF: "Insertar archivo PDF desde la bóveda",
   INSERT_LAST_ACTIVE_PDF_PAGE_AS_IMAGE:
     "Insertar última página PDF activa como imagen",
@@ -287,6 +297,8 @@ export default {
     "Error, no se puede leer la ruta del archivo. Insertando el archivo en su lugar",
   NO_SEARCH_RESULT: "No se encontró ningún elemento coincidente en el bosquejo",
   FORCE_SAVE_ABORTED: "Guardado forzado abortado porque ya se está guardando",
+  DRAWING_RELOAD_FAILED:
+    "Excalidraw rechazó los datos de dibujo entrantes no válidos. Se conservó el dibujo actualmente abierto en el lienzo. Guárdalo o expórtalo antes de cerrar esta vista y revisa el archivo sincronizado o su historial de versiones.",
   LINKLIST_SECOND_ORDER_LINK: "Enlace de Segundo Orden",
   MARKDOWN_EMBED_CUSTOMIZE_LINK_PROMPT_TITLE:
     "Personalizar el enlace del archivo incrustado",
@@ -1114,15 +1126,16 @@ export default {
   EMBED_IMAGE_CACHE_NAME:
     "Guardar imágenes en caché para incrustar en Markdown",
   EMBED_IMAGE_CACHE_DESC:
-    "Guarda imágenes en caché para incrustar en Markdown. Esto acelerará el proceso de incrustación, pero si compones imágenes a partir de varios bosquejos anidados, " +
-    "la imagen incrustada en Markdown no se actualizará hasta que abras el bosquejo y lo guardes para activar la actualización del caché.",
+    "Guarda imágenes en caché para incrustarlas en Markdown. Los bosquejos almacenados en caché se actualizan cuando cambia el bosquejo o una de sus dependencias de archivos de la bóveda.",
   SCENE_IMAGE_CACHE_NAME:
     "Guardar bosquejos anidados de Excalidraw en caché en la escena",
   SCENE_IMAGE_CACHE_DESC:
     "Guarda los bosquejos anidados en caché para un renderizado más rápido. Esto acelerará el proceso de renderizado, especialmente si tienes muchos bosquejos anidados en tu escena. " +
-    "Excalidraw intentará identificar de manera inteligente si algún elemento de un bosquejo anidado ha cambiado y actualizará el caché. " +
+    "Excalidraw identificará los cambios en los bosquejos anidados y en sus fuentes de archivos de la bóveda, y actualizará la caché en consecuencia. " +
     "Puede que quieras desactivar esta opción si sospechas que el caché no se está actualizando correctamente.",
   EMBED_IMAGE_CACHE_CLEAR: "Vaciar caché de imágenes",
+  REFRESH_SCENE_IMAGES:
+    "Actualizar la imagen seleccionada o todas las imágenes del dibujo actual",
   BACKUP_CACHE_CLEAR: "Eliminar copias de seguridad",
   BACKUP_CACHE_CLEAR_CONFIRMATION:
     "Esta acción eliminará todas las copias de seguridad de los bosquejos de Excalidraw. Las copias de seguridad se utilizan como medida de seguridad en caso de que tu archivo de bosquejo se dañe. Cada vez que abres Obsidian, el complemento elimina automáticamente las copias de seguridad de los archivos que ya no existen en tu Bóveda. ¿Estás seguro de que quieres borrar todas las copias de seguridad?",
@@ -1299,6 +1312,34 @@ export default {
   FIELD_SUGGESTER_DESC:
     "El sugeridor de campos, tomado de los complementos Breadcrumbs y Templater, mostrará un menú de autocompletar " +
     "cuando escribas <code>excalidraw-</code> o <code>ea.</code> , con descripciones de las funciones como pistas para cada elemento en la lista.",
+  ALLOW_JS_FILES_NAME: "Cargar archivos JavaScript desde la carpeta Scripts",
+  ALLOW_JS_FILES_DESC:
+    "Cuando está activado, Excalidraw Automate supervisa y ejecuta archivos <code>.js</code> en la carpeta Scripts y acepta un script de inicio <code>.js</code>. " +
+    "De forma predeterminada, Obsidian Sync no sincroniza archivos que no sean Markdown, Obsidian no abre archivos <code>.js</code> para editarlos y el Explorador de archivos los oculta. Activa <b>Sincronizar todos los demás tipos</b> y <b>Mostrar todos los tipos de archivo</b> en Obsidian cuando sea necesario. Si existen scripts <code>.md</code> y <code>.js</code> con el mismo nombre, se utiliza el archivo Markdown.",
+  STORE_SCRIPTS_AS_JS_NAME: "Guardar los scripts descargados como",
+  STORE_SCRIPTS_AS_JS_DESC:
+    "Elige el tipo de archivo local para las nuevas descargas y actualizaciones de la Biblioteca de scripts. Es independiente de si la fuente remota es <code>.md</code> o <code>.js</code>.",
+  SCRIPT_FILE_EXTENSION_MARKDOWN: "Markdown (.md)",
+  SCRIPT_FILE_EXTENSION_JAVASCRIPT: "JavaScript (.js)",
+  MIGRATE_SCRIPT_FILES_NAME: "Mover archivos de script existentes",
+  MIGRATE_SCRIPTS_TO_JS_BUTTON: "Mover scripts existentes a .js",
+  MIGRATE_SCRIPTS_TO_MD_BUTTON: "Mover scripts existentes a .md",
+  MIGRATE_SCRIPT_FILES_STATUS:
+    "Se pueden mover {eligible} archivo(s) de script a {extension}. {skipped}",
+  MIGRATE_SCRIPT_FILES_CONFIRM:
+    "Haz una copia de seguridad de tu bóveda antes de continuar.<br><br>Se cambiará la extensión de <b>{count}</b> archivo(s) de script a <code>{extension}</code>. Se actualizarán las rutas de los scripts fijados. {startup} {skipped}",
+  MIGRATE_SCRIPT_FILES_STARTUP_INCLUDED:
+    "También se actualizarán el script de inicio configurado y su ajuste.",
+  MIGRATE_SCRIPT_FILES_SKIPPED:
+    "No se moverán {count} par(es) .md/.js con el mismo nombre.",
+  MIGRATE_SCRIPT_FILES_SKIPPED_DETAILS:
+    "Se omitieron {count} archivo(s) de script porque el destino ya existe:\n{files}",
+  MIGRATE_SCRIPT_FILES_NONE:
+    "No se encontraron archivos de script aptos para mover.",
+  MIGRATE_SCRIPT_FILES_COMPLETE:
+    "Se movieron {count} archivo(s) de script a {extension}.",
+  MIGRATE_SCRIPT_FILES_FAILED:
+    "No se pudieron mover los archivos de script. Los cambios completados se revirtieron cuando fue posible.",
   ENABLE_ONLOAD_SCRIPTS_NAME: "Habilitar scripts de carga",
   ENABLE_ONLOAD_SCRIPTS_CONFIRMATION:
     "Este archivo incluye un <code>excalidraw-onload-script</code>. ¿Quieres habilitar los scripts de carga?",
@@ -1332,9 +1373,10 @@ export default {
     "Esto crea un riesgo si abres dibujos de fuentes desconocidas: un dibujo malicioso puede hacer que un clic normal ejecute comandos privilegiados. " +
     "Actívalo solo si confías en el archivo y en su origen.",
   STARTUP_SCRIPT_NAME: "Script de inicio",
+  STARTUP_SCRIPT_JS_DISABLED:
+    "Los scripts de inicio JavaScript están desactivados. Primero habilita los archivos JavaScript en la configuración de Excalidraw Automate.",
   STARTUP_SCRIPT_DESC:
-    "Si está configurado, Excalidraw ejecutará el script al iniciar el complemento. Esto es útil si quieres establecer cualquiera de los hooks de Excalidraw Automate. El script de inicio es un archivo Markdown " +
-    "que debe contener el código Javascript que quieres ejecutar cuando Excalidraw se inicie",
+    "Si está configurado, Excalidraw ejecutará el script al iniciar el complemento. Es útil para configurar hooks de Excalidraw Automate. Las rutas sin extensión utilizan un archivo Markdown; los archivos <code>.js</code> se aceptan cuando está habilitada la carga de archivos JavaScript.",
   STARTUP_SCRIPT_BUTTON_CREATE: "Crear script de inicio",
   STARTUP_SCRIPT_BUTTON_OPEN: "Abrir script de inicio",
   FILETYPE_NAME:

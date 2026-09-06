@@ -46,7 +46,6 @@ import {
   getNewUniqueFilepath,
 } from "../utils/fileUtils";
 import {
-  errorlog,
   isVersionNewerThanOther,
   versionUpdateCheckTimer,
   calculateUIModeValue,
@@ -66,7 +65,7 @@ import {
 } from "./managers/MarkdownPostProcessor";
 import { FieldSuggester } from "../shared/Suggesters/FieldSuggester";
 import { ReleaseNotes } from "../shared/Dialogs/ReleaseNotes";
-import { DeviceType, Packages } from "../types/types";
+import { DeviceType, PackageLease, Packages } from "../types/types";
 import { PaneTarget } from "../types/utilTypes";
 import {
   emulateCTRLClickForLinks,
@@ -113,6 +112,16 @@ import { PluginSettingsManager } from "./managers/PluginSettingsManager";
 import { FooterSafeAreaManager } from "./managers/FooterSafeAreaManager";
 import { FontManager } from "./managers/FontManager";
 import { StartupTimer } from "./managers/StartupTimer";
+import {
+  ViewMigrationPersistenceHandoffManager,
+  type ViewMigrationPersistenceHandoff,
+} from "./managers/ViewMigrationPersistenceHandoffManager";
+import {
+  ViewMigrationHandoffManager,
+  type ViewMigrationDrawingState,
+  type ViewMigrationHandoffRegistration,
+  type ViewMigrationHandoffRequest,
+} from "./managers/ViewMigrationHandoffManager";
 
 declare const PLUGIN_VERSION: string;
 declare const INITIAL_TIMESTAMP: number;
@@ -159,6 +168,8 @@ export default class ExcalidrawPlugin extends Plugin {
   private footerSafeAreaManager: FooterSafeAreaManager;
   private fontManager: FontManager;
   private startupTimer: StartupTimer;
+  private viewMigrationHandoffManager: ViewMigrationHandoffManager;
+  private viewMigrationPersistenceHandoffManager: ViewMigrationPersistenceHandoffManager;
   public stencilLibraryManager: StencilLibraryManager;
   public eaInstances = new WeakArray<ExcalidrawAutomate>();
   public fourthFontLoaded: boolean = false;
@@ -202,6 +213,9 @@ export default class ExcalidrawPlugin extends Plugin {
     super(app, manifest);
     this.loadTimestamp = INITIAL_TIMESTAMP;
     this.startupTimer = new StartupTimer(this.loadTimestamp, PLUGIN_VERSION);
+    this.viewMigrationHandoffManager = new ViewMigrationHandoffManager();
+    this.viewMigrationPersistenceHandoffManager =
+      new ViewMigrationPersistenceHandoffManager();
     this.filesMaster = new Map<
       FileId,
       {
@@ -222,7 +236,7 @@ export default class ExcalidrawPlugin extends Plugin {
     this.settingsManager = new PluginSettingsManager(this);
     this.footerSafeAreaManager = new FooterSafeAreaManager(this);
     this.fontManager = new FontManager(this, () =>
-      this.packageManager.getPackageMap(),
+      this.packageManager.getRuntimePackage(),
     );
 
     setExcalidrawPlugin(this);
@@ -607,16 +621,7 @@ export default class ExcalidrawPlugin extends Plugin {
     await this.fontManager.initializeFonts();
   }
 
-  /** Adds or replaces a plugin-owned font stylesheet. */
-  public async addFonts(
-    declarations: string[],
-    ownerDocument?: Document,
-    styleId?: string,
-  ): Promise<void> {
-    await this.fontManager.addFonts(declarations, ownerDocument, styleId);
-  }
-
-  /** Removes plugin-owned font stylesheets from all open documents. */
+  /** Removes plugin-owned runtime fonts from all open documents. */
   public removeFonts(): void {
     this.fontManager.removeFonts();
   }
@@ -661,29 +666,22 @@ export default class ExcalidrawPlugin extends Plugin {
 
   private registerInstallCodeblockProcessor() {
     const codeblockProcessor = async (source: string, el: HTMLElement) => {
-      //Button next to the "List of available scripts" at the top
-      //In try/catch block because this approach is very error prone, depends on
-      //MarkdownRenderer() and index.md structure, in case these are not as
-      //expected this code will break
+      // The mirrored update button is only available in the Script Library
+      // index layout. Other render contexts do not have the adjacent heading.
       let button2: HTMLButtonElement = null;
-      try {
-        const link: HTMLElement = el.parentElement.querySelector(
-          `a[href="#${el.previousElementSibling.getAttribute(
-            "data-heading",
-          )}"]`,
-        );
+      const heading = el.previousElementSibling?.getAttribute("data-heading");
+      const link = heading
+        ? Array.from(el.parentElement?.querySelectorAll("a") ?? []).find(
+            (anchor) => anchor.getAttribute("href") === `#${heading}`,
+          )
+        : null;
+      if (link?.parentElement) {
         link.addClass("excalidraw-installCodeBlock-link");
         button2 = link.parentElement.createEl("button", null, (b) => {
           b.setText(t("UPDATE_SCRIPT"));
           b.addClass("mod-muted");
           setButtonBgColor(b, "success");
           hideElement(b);
-        });
-      } catch (e: unknown) {
-        errorlog({
-          where: "this.registerInstallCodeblockProcessor",
-          source,
-          error: e,
         });
       }
 
@@ -752,6 +750,9 @@ export default class ExcalidrawPlugin extends Plugin {
     keepOriginal: boolean = false,
   ): Promise<TFile> {
     const data = await this.app.vault.read(file);
+    const hasEmbeddedFiles = Object.keys(
+      (JSON_parse<{ files?: Record<string, unknown> }>(data).files ?? {}),
+    ).length > 0;
     const filename =
       file.name.substring(0, file.name.lastIndexOf(".excalidraw")) +
       (replaceExtension ? ".md" : ".excalidraw.md");
@@ -761,11 +762,17 @@ export default class ExcalidrawPlugin extends Plugin {
       normalizePath(file.path.substring(0, file.path.lastIndexOf(file.name))),
     );
     log(fname);
-    const result = await createOrOverwriteFile(
-      this.app,
-      fname,
-      FRONTMATTER + (await this.fileManager.exportSceneToMD(data, false)),
-    );
+    const initialMarkdown =
+      FRONTMATTER + (await this.fileManager.exportSceneToMD(data, false));
+    const result = await createOrOverwriteFile(this.app, fname, initialMarkdown);
+    if (hasEmbeddedFiles) {
+      const convertedMarkdown =
+        await this.fileManager.persistLegacySceneFilesInMarkdown(
+          initialMarkdown,
+          result,
+        );
+      await this.app.vault.modify(result, convertedMarkdown);
+    }
     if (this.settings.keepInSync) {
       EXPORT_TYPES.forEach((ext: string) => {
         const oldIMGpath =
@@ -812,18 +819,20 @@ export default class ExcalidrawPlugin extends Plugin {
     ) {
       return;
     }
-    const path = this.settings.startupScriptPath.endsWith(".md")
-      ? this.settings.startupScriptPath
-      : `${this.settings.startupScriptPath}.md`;
+    const path = this.scriptEngine.resolveStartupScriptPath(
+      this.settings.startupScriptPath,
+    );
+    if (!path) {
+      new Notice(t("STARTUP_SCRIPT_JS_DISABLED"));
+      return;
+    }
     const f = this.app.vault.getFileByPath(path);
     if (!f || !(f instanceof TFile)) {
       new Notice(`Startup script not found: ${path}`);
       return;
     }
-    const script = await this.app.vault.read(f);
-    const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor;
     try {
-      await new AsyncFunction("ea", script)(this.ea);
+      await this.scriptEngine.executeStartupScript(f, this.ea);
     } catch (e) {
       new Notice(`Error running startup script: ${e}`);
     }
@@ -979,6 +988,8 @@ export default class ExcalidrawPlugin extends Plugin {
     //PLUGIN_VERSION = null;
     delete window.PolyBool;
     this.packageManager.destroy();
+    this.viewMigrationHandoffManager.destroy();
+    this.viewMigrationPersistenceHandoffManager.destroy();
     this.commandManager?.destroy();
     this.eventManager.destroy();
     terminateCompressionWorker();
@@ -1226,8 +1237,8 @@ export default class ExcalidrawPlugin extends Plugin {
     this.observerManager.removeThemeObserver();
   }
 
-  public addModalContainerObserver() {
-    this.observerManager.addModalContainerObserver();
+  public addModalContainerObserver(view?: ExcalidrawView) {
+    this.observerManager.addModalContainerObserver(view);
   }
 
   public removeModalContainerObserver() {
@@ -1242,8 +1253,50 @@ export default class ExcalidrawPlugin extends Plugin {
     return this.packageManager.getPackage(win);
   }
 
+  /** Acquires explicit ownership of the runtime package for one view window. */
+  public acquirePackage(win: Window): PackageLease {
+    return this.packageManager.acquirePackage(win);
+  }
+
   public deletePackage(win: Window) {
     this.packageManager.deletePackage(win);
+  }
+
+  /** Registers drawing-owned runtime state for one recreated view. */
+  public registerViewMigrationHandoff(
+    registration: ViewMigrationHandoffRegistration,
+  ): string {
+    return this.viewMigrationHandoffManager.register(registration);
+  }
+
+  /** Consumes validated drawing-owned runtime state for one recreated view. */
+  public consumeViewMigrationHandoff(
+    request: ViewMigrationHandoffRequest,
+  ): ViewMigrationDrawingState | null {
+    return this.viewMigrationHandoffManager.consume(request);
+  }
+
+  /** Registers serialized drawing text for a popout-to-main migration. */
+  public registerViewMigrationPersistenceHandoff(
+    handoff: ViewMigrationPersistenceHandoff,
+  ): void {
+    this.viewMigrationPersistenceHandoffManager.register(handoff);
+  }
+
+  /** Consumes serialized drawing text for the replacement main-window view. */
+  public consumeViewMigrationPersistenceHandoff(
+    leafId: string,
+    filePath: string,
+  ): string | null {
+    return this.viewMigrationPersistenceHandoffManager.consume(
+      leafId,
+      filePath,
+    );
+  }
+
+  /** Discards a handoff when the old view could not be replaced. */
+  public discardViewMigrationPersistenceHandoff(leafId: string): void {
+    this.viewMigrationPersistenceHandoffManager.discard(leafId);
   }
 
   get taskbone() {

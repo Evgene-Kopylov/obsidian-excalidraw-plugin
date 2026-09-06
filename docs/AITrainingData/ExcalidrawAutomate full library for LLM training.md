@@ -4,8 +4,17 @@ Excalidraw-Obsidian is an Obsidian.md plugins that is built on the open source E
 
 Read the information below and respond with I'm ready. The user will then prompt for an ExcalidrawAutomate script to be created. Use the examples, the ExcalidrawAutomate documentation, and the varios type definitions and information from also the Excalidraw component and from Obsidian.md to generate the script based on the user's requirements.
 
+**Routing note:** Prefer the curated skill package and reference set first. If your environment cannot open linked files or has URL access disabled, use the repository base below and resolve the references from there.
+
+- Master repository: https://github.com/zsviczian/obsidian-excalidraw-plugin
+- Start with: https://github.com/zsviczian/obsidian-excalidraw-plugin/blob/master/docs/AITrainingData/excalidraw-automate/SKILL.md
+- Type definitions: https://github.com/zsviczian/obsidian-excalidraw-plugin/blob/master/docs/AITrainingData/excalidraw-automate/references/type-definitions.md
+- API usage index: https://github.com/zsviczian/obsidian-excalidraw-plugin/blob/master/docs/AITrainingData/excalidraw-automate/references/api-usage-index.md
+- ExcalidrawLib signatures: https://github.com/zsviczian/obsidian-excalidraw-plugin/blob/master/docs/AITrainingData/excalidraw-automate/references/excalidraw-lib-functions.md
+- Startup examples: https://github.com/zsviczian/obsidian-excalidraw-plugin/blob/master/docs/AITrainingData/excalidraw-automate/references/startup-scripts.md
+
 In addition to ExcalidrawAutomate, you can also use two other sources of functions:
-- The Excalidraw API available via `ea.getExcalidrawAPI()`. Note: the API is only available if `ea.targetView` is set. When running Excalidraw scripts using the script engine, the provided `ea` object is already set up with targetView by default. Otherwise you need to first run `ea.setView()`.
+- The Excalidraw API available via `ea.getExcalidrawAPI()`. Note: the API is only available if `ea.targetView` is set. When running Excalidraw scripts using the script engine, the provided `ea` object is already set up with targetView by default. Otherwise call `ea.setView()` to select a sensible default or `ea.setView(view)` to bind explicitly. Calling `ea.setView(null)` deliberately clears `targetView`; it does not auto-select another drawing.
 - `window.ExcalidrawLib` which exposes a rich set of utility functions that do not require an active ExcalidrawView.
 
 **CRITICAL RULE ON API SELECTION:** If a function or objective can be achieved via `ea` (ExcalidrawAutomate) methods, ALWAYS prefer `ea` over `window.ExcalidrawLib`. `ea` methods include essential wrapper logic to make features work flawlessly within the Obsidian environment.
@@ -18,10 +27,17 @@ For a reference, follow the implementation pattern used in the "Printable Layout
 - Elements can be hidden by setting their opacity to 0. When hiding elements this way, it is good practice to temporarily store their original opacity in customData. This allows for easy restoration of the original opacity later.
 - Elements can be deleted from the scene by setting their isDeleted property to true.
 - The Obsidian.md module is available on `ea.obsidian`.
+- Version checks are distinct: use `ea.verifyMinimumPluginVersion()` for the Excalidraw plugin and `ea.verifyMinAppVersion()` only for the Obsidian application version.
+- `utils.executionSource` describes why the current top-level invocation happened. Supported values are `"manual"`, `"plugin-startup"`, `"view-autostart"`, `"sidepanel-restore"`, `"sidepanel-reload"`, and `"drawing-onload"`. It does not indicate whether code came from the compilation cache or whether the script has run before.
+- `ea.registerAutostart(message?)` requests view-autostart permission. The script is automatically attached once to each ExcalidrawView, while manual toolbar/command/hotkey invocation remains independently repeatable. The optional explanation appears as the second paragraph of the permission prompt; do not imply that the script's main interactive action starts automatically when only its tools/providers do.
+- `ea.registerCleanup(cleanup)` registers synchronous cleanup owned by the current EA instance. Use it for external listeners, timers, observers, and subscriptions; the cleanup runs when that EA is destroyed.
+- `ea.registerElementActionProvider()` action descriptors take an Obsidian/Lucide icon name such as `"presentation"`, not serialized SVG markup. For buttons a script renders itself, obtain the SVG with `ea.obsidian.getIcon()` and recreate it in the button's owning document when popout support matters.
+- When an Excalidraw API method requires an element, pass the known typed scene element. For example, call `api.startLineEditor(line, pointIndices)`; do not re-read selection state when the intended line is already known.
+- For persistent workbench mutations, await `ea.addElementsToView()` with saving enabled (the default). Prefer this public EA save path over unpublished methods on `ea.targetView`.
 
 **Sidepanels and multi-view tooling:**
 - Sidepanels are for scripts that must stay open while users hop between multiple Excalidraw views. They should implement the SidepanelTab hooks (`onOpen`, `onFocus(view)`, `onClose`, `onExcalidrawViewClosed`) and manage their own `ea.targetView` explicitly.
-- Persisted sidepanel scripts are launched during plugin startup (e.g., Obsidian restart, plugin update) with `ea.targetView === null`. Scripts must handle this by deferring view-bound work until `onFocus` delivers a view; call `ea.setView(view)` when you decide to bind.
+- Persisted sidepanel scripts are restored lazily when the Excalidraw sidepanel initializes (often during startup, but not necessarily) with `ea.targetView === null`. Scripts must handle this by deferring view-bound work until `onFocus` delivers a view; call `ea.setView(view)` when you decide to bind. When `onFocus` supplies `null` or focus moves to a non-Excalidraw view, call `ea.setView(null)` to make the unbound state explicit and prevent later view operations from targeting a stale drawing.
 - Each `ea` instance may host a single `sidepanelTab`. This sidepanel tab is stored in `ea.sidepanelTab`. Create the tab with `ea.createSidepanelTab(title, persist=false, reveal=true)`; the returned `ea.sidepanelTab` exposes `contentEl`, `setContent`, `setTitle`, `setDisabled`, `setCloseCallback`, `open/close`, and focus lifecycle hooks. Note auto-reveal during tab creation via `ea.createSidepanelTab()` is disabled during plugin startup. You can reveal a tab with `ea.sidepanelTab?.open()`. You can persist with `ea.persistSidepanelTab()` (tabs are restored and scripts re-run on next startup). Close with `ea.sidepanelTab?.close()`.
 - Mobile UX: sidepanels slide in without disturbing canvas layout and are better for longer forms than floating modals. Prefer them for complex inputs, especially on phones.
 - Auto-closing patterns: For scripts that use sidepanels but perform operations that are single-`ExcalidrawView` relevant, they can call `ea.closeSidepanelTab()` after completing the operation, and/or inside `ea.sidepanelTab.onFocus = (view) => { if (view !== ea.targetView) { ea.sidepanelTab?.close(); } }` to shut down when the user leaves the originating view.
@@ -59,14 +75,33 @@ To keep this training file concise, large external type definitions are not incl
 
 #### **1. The Core Workflow: Handling Element Immutability**
 
-*   **Central Rule:** Elements in the Excalidraw scene are immutable and should never be modified directly. Always use the ExcalidrawAutomate (EA) "workbench" pattern for modifications.
+*   **Central Rule:** Elements returned from the Excalidraw scene are immutable and should never be modified directly. EA owns a stateful, in-memory "workbench" (`elementsDict` and `imagesDict`) where a script stages one coherent persistent or temporary operation independently of the scene.
 *   **The Workflow:**
-    1.  Get elements from the current view using `ea.getViewElements()` or `ea.getViewSelectedElements()`.
-    2.  Copy these elements into the EA workbench for editing using `ea.copyViewElementsToEAforEditing(elements)`.
-    3.  Modify the properties of the element copies that are now in the EA workbench (e.g., `ea.getElement(id).locked = true;`).
-    4.  Commit the changes back to the scene using `await ea.addElementsToView()`.
+    1.  Start an independent transaction with `ea.clear()`. This clears only the workbench; it does not delete scene elements or reset style.
+    2.  Read existing scene elements using `ea.getViewElements()` or `ea.getViewSelectedElements()`.
+    3.  To work with mutable copies of those same scene elements, copy them into the workbench with `ea.copyViewElementsToEAforEditing(elements)`. Their IDs are preserved.
+    4.  Modify the workbench copies retrieved by their original IDs (e.g., `ea.getElement(id).locked = true;`).
+    5.  For a persistent scene edit, commit once with `await ea.addElementsToView()`; saving is enabled by default. For temporary transformations such as export or preview preparation, pass the workbench elements to the relevant EA operation without committing them to the scene.
+    6.  Call `ea.clear()` after the operation to discard the workbench copies, preferably in a `finally` block when an awaited operation can fail.
+*   **Temporary workbench example:**
+    ```javascript
+    ea.clear();
+    try {
+      const sceneElements = ea.getViewElements();
+      ea.copyViewElementsToEAforEditing(sceneElements);
+      ea.getElement(pathId).opacity = 0;
+      // elementsOverride replaces the export scene, so pass the complete workbench.
+      const svg = await ea.createViewSVG({ elementsOverride: ea.getElements() });
+      // Use svg. The live scene was never changed.
+    } finally {
+      ea.clear();
+    }
+    ```
+*   **`elementsOverride` is a complete replacement:** In `createViewSVG()` and `createViewPNG()`, this option replaces the view's element array; it is not merged with the scene and is not a patch by element ID. The array must contain every element that should appear in the image. When temporarily modifying an existing scene for export, copy the complete desired export set into EA, modify the workbench copy, and pass `ea.getElements()` as the override.
+*   **Use `exportArea` for bounded view exports:** Both view export methods accept `exportArea: {x, y, width, height}`. EA filters the candidate elements with the same logic exposed as `getElementsIntersectionArea()` (and its backward-compatible `getElementsInArea()` alias), retains required bound elements, and anchors the result to that exact viewport. This prevents a small preview or PDF page from retaining every image in a large scene.
+*   **Identity is the boundary:** `copyViewElementsToEAforEditing()` is the standard way to obtain mutable, identity-preserving copies of existing scene elements for both persistent edits and temporary EA operations. By contrast, `ea.cloneElement()` and `ea.cloneElements()` deliberately generate new IDs and are only for creating genuine duplicate scene elements. Never use them to obtain editable workbench copies of existing elements.
+*   **One workbench transaction at a time:** The workbench is shared mutable state on an EA instance. Do not interleave asynchronous preview/export preparation and scene mutation through the same workbench. Await the operation, then clear the workbench before starting another transaction.
 *   **Deletion:** To delete an element, set its `isDeleted` property to `true` on the workbench copy (`ea.getElement(id).isDeleted = true;`) and then commit with `await ea.addElementsToView()`.
-*   **Cleanup:** Use `ea.clear()` at the beginning of a script if you are creating a completely new set of elements, to ensure the EA workbench is empty and doesn't contain artifacts from a previous run.
 
 #### **2. User Interaction: Prompts and Dialogs**
 
@@ -120,11 +155,27 @@ To keep this training file concise, large external type definitions are not incl
     *   To permanently remove an element from the scene, set `element.isDeleted = true`.
 *   **Image Handling:** When dealing with image elements, use `ea.getViewFileForImageElement(imageElement)` to get the corresponding `TFile` from the Obsidian vault. This is necessary for any logic that needs to read or manipulate the source image file.
 
+#### **6.1. Tests in a Multi-Script Workspace**
+
+*   **Tests are part of implementation:** Add or update focused automated tests for behavior changes. When fixing a regression, reproduce it with a failing test first when practical.
+*   **Co-locate by ownership:** Put script tests in `src/scripts/{slug}/__tests__/*.test.ts` and shared utility tests in `src/sharedUtils/__tests__/*.test.ts`. Do not maintain a separate root test tree that mirrors dozens of scripts.
+*   **Never import executable entrypoints:** `main.ts` runs immediately against the globals injected by Obsidian. Keep it as a thin bootstrap and move testable orchestration to `run.ts` or another import-safe module.
+*   **Use the universal runner:** Use Vitest. Run a focused suite while iterating, then run `npm run check`; the repository gate includes TypeScript, ESLint, and all test suites. Use `npm run test:watch` for continuous feedback.
+*   **Test behavior, not bundler details:** Prefer pure domain functions and narrow fakes for `ea`, the Excalidraw API, Obsidian globals, timers, and DOM boundaries. Build and perform an Obsidian smoke test for integration behavior automation cannot prove.
+
+#### **6.2. Per-Script Localization**
+
+*   **Catalogs belong to the script:** Store strings in `src/scripts/{slug}/lang/`, with one file per locale. Never create one language catalog shared across unrelated scripts.
+*   **English defines the contract:** `lang/en.ts` is the typed source of truth. Maintain `de.ts`, `es.ts`, `fr.ts`, `ru.ts`, and `zh-cn.ts`; incomplete reviewed catalogs may rely on English fallback.
+*   **Use the shared helper:** Register catalogs in `lang/index.ts` with `createTranslator`. Resolve the locale with `ea.obsidian.moment.locale()` and pass the translator into import-safe script logic.
+*   **Interpolate by name:** Use placeholders such as `{count}` instead of string concatenation. Do not use dynamically constructed regular expressions for interpolation.
+*   **Keep UI copy out of logic:** Add user-visible strings to the script catalog rather than embedding them in controllers, runners, or helpers.
+
 #### **7. SVG and Image Export Approaches**
 Generating images (SVG/PNG) requires specific approaches depending on the context. Follow these three rules strictly to avoid performance issues and missing assets:
 1. **Exporting elements currently in the EA workbench:** Use `await ea.createSVG(null, ...)` or `await ea.createPNG(null, ...)` (passing `null` as the `templatePath`).
 2. **Exporting an Excalidraw file that is NOT currently open:** Pass the file path as the template to `createSVG` or `createPNG` (e.g., `await ea.createSVG(file.path, ...)`). This is the most reliable approach as ExcalidrawAutomate natively handles loading the scene, resolving embedded images, and instantiating loaders behind the scenes. **Do NOT attempt to manually read the file, reconstruct the scene, or load images into memory.**
-3. **Exporting the currently active `ExcalidrawView`:** Use `await ea.createViewSVG(...)`. This is specifically for the open view. You can use the `elementsOverride` parameter to inject temporary elements (like transparent sizing rectangles) into the exported image without modifying the actual scene.
+3. **Exporting the currently active `ExcalidrawView`:** Use `await ea.createViewSVG(...)` for vector output or `await ea.createViewPNG(...)` for raster output. Their `elementsOverride` parameter is a complete replacement for the exported element array, not an additive injection or patch by ID. Use `exportArea` when only a rectangular viewport is needed; it filters out off-area elements and their unused image payloads instead of exporting the full scene and merely changing the SVG viewBox. For temporary changes, copy the complete desired export set into the EA workbench, modify it there, and pass `ea.getElements()`.
 
 #### **8. Custom Pens and Perfect Freehand**
 
@@ -227,28 +278,30 @@ Example freedraw element carrying `customData.strokeOptions`:
 
 # ExcalidrawAutomate library and related type definitions
 
-
 ```js
 /* ************************************** */
 /* lib/shared/ExcalidrawAutomate.d.ts */
 /* ************************************** */
 type MutableElementMapEntry = Mutable<ExcalidrawElement> & Record<string, unknown>;
 import { PageDimensions, PageOrientation, PageSize, PDFExportScale, PDFPageProperties, ExportSettings } from "src/types/exportUtilTypes";
-import { FrameRenderingOptions, PaneTarget } from "src/types/utilTypes";
+import { PaneTarget } from "src/types/utilTypes";
 import { AutoexportConfig } from "src/types/excalidrawViewTypes";
 import { FloatingModal } from "./Dialogs/FloatingModal";
 import { ExcalidrawSidepanelTab } from "src/view/sidepanel/SidepanelTab";
 import { ObsidianCanvasNode } from "src/view/managers/CanvasNodeFactory";
 import { AIRequest, ExcalidrawAISettings } from "src/types/AIUtilTypes";
+import type { SelectedElementMenuAction } from "src/types/elementActionTypes";
 import { CaptureUpdateActionType } from "@zsviczian/excalidraw/types/element/src";
 type ExcalidrawAutomateHelpTarget = ((...args: unknown[]) => unknown) | string;
 /**
  * ExcalidrawAutomate is a utility class that provides a simplified API to interact with Excalidraw elements and the Excalidraw canvas.
  * Elements in the Excalidraw Scene are immutable. You should never directly change element properties in the scene object.
- * ExcalidrawAutomate provides a "workbench" where you can create, modify, and delete elements before committing them to the Excalidraw Scene.
- * The basic workflow is to create elements in ExcalidrawAutomate and once ready commit them to the Excalidraw Scene using addElementsToView().
- * To modify elements in the scene, you should first copy them over to EA using copyViewElementsToEAforEditing, make the necessary modifications,
- * then commit them back to the scene using addElementsToView().
+ * ExcalidrawAutomate provides a stateful, in-memory "workbench" where you can create, modify, and delete elements independently of the Excalidraw Scene.
+ * Begin each independent transaction with clear(). To modify existing scene elements while preserving their identity, copy them to the workbench with
+ * copyViewElementsToEAforEditing() and modify the copies returned by getElement(originalId). Commit persistent edits with addElementsToView(),
+ * or use the modified workbench elements for a temporary EA operation such as export and then discard them with clear() without committing.
+ * cloneElement() and cloneElements() deliberately generate new IDs and are only for creating genuine duplicates, never for editing an existing scene element.
+ * Do not interleave asynchronous operations that mutate the same EA workbench; await the operation, then clear before starting another transaction.
  * To delete an element from the view set element.isDeleted = true and commit the changes to the scene using addElementsToView().
  *
  * At a very high level, EA has 3 type of functions:
@@ -566,7 +619,17 @@ export declare class ExcalidrawAutomate {
     };
     colorPalette: object;
     sidepanelTab: ExcalidrawSidepanelTab | null;
+    private cleanupCallbacks;
+    private destroyed;
     constructor(plugin: ExcalidrawPlugin, view?: ExcalidrawView);
+    /**
+     * Registers synchronous cleanup owned by this EA instance. Use this for
+     * external listeners, observers, timers, and subscriptions that EA cannot
+     * release itself. Cleanup runs when this EA is destroyed.
+     * @param cleanup - Synchronous cleanup callback.
+     * @returns A function that unregisters this callback without running it.
+     */
+    registerCleanup(cleanup: () => void): () => void;
     /**
      * Return the active sidepanel tab for a script, if one exists.
      * If scriptName is omitted the function checks ea.activeScript.
@@ -826,30 +889,28 @@ export declare class ExcalidrawAutomate {
         pageProps?: PDFPageProperties;
         filename: string;
     }): Promise<void>;
+    private prepareViewImageExport;
     /**
      * Creates an SVG representation of the current view.
      *
-     * @param {Object} options - The options for creating the SVG.
-     * @param {boolean} [options.withBackground=true] - Whether to include the background in the SVG.
-     * @param {"light" | "dark"} [options.theme] - The theme to use for the SVG.
-     * @param {FrameRenderingOptions} [options.frameRendering={enabled: true, name: true, outline: true, clip: true}] - The frame rendering options.
-     * @param {number} [options.padding] - The padding to apply around the SVG.
-     * @param {boolean} [options.selectedOnly=false] - Whether to include only the selected elements in the SVG.
-     * @param {boolean} [options.skipInliningFonts=false] - Whether to skip inlining fonts in the SVG.
-     * @param {boolean} [options.embedScene=false] - Whether to embed the scene in the SVG.
-     * @param {ExcalidrawElement[]} [options.elementsOverride] - Optional override for the elements to include in the SVG. Primary to support the Printable Layout Wizard script
-     * @returns {Promise<SVGSVGElement>} A promise that resolves to the SVG element.
+     * @param options - View export options. `elementsOverride`, when supplied, is
+     * a complete replacement rather than a patch. `exportArea` filters that
+     * candidate set and anchors the result to an exact scene rectangle.
+     * @returns A promise resolving to the exported SVG, or `undefined` when no
+     * loaded target view is available.
      */
-    createViewSVG({ withBackground, theme, frameRendering, padding, selectedOnly, skipInliningFonts, embedScene, elementsOverride, }: {
-        withBackground?: boolean;
-        theme?: "light" | "dark";
-        frameRendering?: FrameRenderingOptions;
-        padding?: number;
-        selectedOnly?: boolean;
-        skipInliningFonts?: boolean;
-        embedScene?: boolean;
-        elementsOverride?: ExcalidrawElement[];
-    }): Promise<SVGSVGElement>;
+    createViewSVG(options?: ViewSVGExportOptions): Promise<SVGSVGElement>;
+    /**
+     * Creates a PNG representation of the current view without using or mutating
+     * the EA workbench.
+     *
+     * @param options - View export options. `elementsOverride`, when supplied, is
+     * a complete replacement rather than a patch. `exportArea` filters that
+     * candidate set and anchors the result to an exact scene rectangle.
+     * @returns A promise resolving to a PNG blob, or `undefined` when no loaded
+     * target view is available.
+     */
+    createViewPNG(options?: ViewPNGExportOptions): Promise<Blob>;
     /**
      * Creates an SVG image from the ExcalidrawAutomate elements and the template provided.
      * @param {string} [templatePath] - The template path to use for the SVG.
@@ -1117,16 +1178,19 @@ export declare class ExcalidrawAutomate {
      * @param {string} tex - The LaTeX equation string.
      * @param {number} [scaleX=1] - The x-scaling factor (post mathjax creation)
      * @param {number} [scaleY=1] - The y-scaling factor (post mathjax creation)
+     * @param {MathJaxRenderOptions} [options] - MathJax rendering options. Set `throwOnError` to propagate invalid LaTeX errors.
      * @returns {Promise<string>} Promise resolving to the ID of the added LaTeX image element.
      */
-    addLaTex(topX: number, topY: number, tex: string, scaleX?: number, scaleY?: number): Promise<string>;
+    addLaTex(topX: number, topY: number, tex: string, scaleX?: number, scaleY?: number, options?: MathJaxRenderOptions): Promise<string>;
     /**
      * Returns the base64 dataURL of the LaTeX equation rendered as an SVG.
      * @param {string} tex - The LaTeX equation string.
      * @param {number} [scale=4] - The scale factor for the image.
+     * @param {MathJaxRenderOptions} [options] - MathJax rendering options. Set `throwOnError` to propagate invalid LaTeX errors.
      * @returns {Promise<{mimeType: MimeType; fileId: FileId; dataURL: DataURL; created: number; size: { height: number; width: number };}>} Promise resolving to the LaTeX image data.
      */
-    tex2dataURL(tex: string, scale?: number): Promise<{
+    tex2dataURL(tex: string, scale?: number, // Default scale value, adjust as needed
+    options?: MathJaxRenderOptions): Promise<{
         mimeType: MimeType;
         fileId: FileId;
         dataURL: DataURL;
@@ -1163,7 +1227,9 @@ export declare class ExcalidrawAutomate {
      */
     addLabelToLine(lineId: string, label: string): string;
     /**
-     * Clears elementsDict and imagesDict only.
+     * Clears the EA workbench (`elementsDict` and `imagesDict`) without changing
+     * the scene, target view, or current style. Call this before each independent
+     * workbench transaction and before repurposing an EA instance.
      */
     clear(): void;
     /**
@@ -1176,7 +1242,7 @@ export declare class ExcalidrawAutomate {
      * @returns {boolean} True if the file is an Excalidraw file, false otherwise.
      */
     isExcalidrawFile(f: TFile): boolean;
-    targetView: ExcalidrawView;
+    targetView: ExcalidrawView | null;
     /**
      * Sets the target view for EA. All view operations and all access to the Excalidraw API
      * will be performed on this view.
@@ -1184,12 +1250,15 @@ export declare class ExcalidrawAutomate {
      * Typical usage:
      * - `setView()` to pick a sensible default automatically
      * - `setView(excalidrawView)` to explicitly target a specific view
+     * - `setView(null)` to explicitly clear `targetView`
      *
      * Selectors:
-     * - If `view` is `null` or `undefined` (or `"auto"`), EA will pick a sensible default:
+     * - If `view` is `undefined` (or `"auto"`), EA will pick a sensible default:
      *   1) the currently active Excalidraw view (if any),
      *   2) otherwise the last active Excalidraw view (if it is still available),
      *   3) otherwise the `"first"` Excalidraw view in the workspace.
+     * - If `view` is explicitly `null`, EA clears `targetView`. This is useful for
+     *   sidepanels when focus moves to a Markdown view or no drawing is eligible.
      * - If `show` is `true`, the view will be revealed (brought to front) and focused.
      *
      * Deprecated selectors (kept for backward compatibility):
@@ -1201,11 +1270,11 @@ export declare class ExcalidrawAutomate {
      *   necessarily match what a user would consider the “first”/“leftmost”/“topmost” view;
      *   from a user's perspective it may appear effectively random.**
      *
-     * @param {ExcalidrawView | "auto" | "first" | "active" | null | undefined} [view] - The view (or selector) to set as target.
+     * @param {ExcalidrawView | "auto" | "first" | "active" | null | undefined} [view] - The view or selector to set as target. Pass `null` to clear the target.
      * @param {boolean} [show=false] - Whether to reveal/focus the target view.
-     * @returns {ExcalidrawView} The ExcalidrawView that was set as `targetView` (or `null` if none found).
+     * @returns {ExcalidrawView | null} The ExcalidrawView that was set as `targetView`, or `null` when cleared or none was found.
      */
-    setView(view?: ExcalidrawView | "auto" | "first" | "active" | null, show?: boolean): ExcalidrawView;
+    setView(view?: ExcalidrawView | "auto" | "first" | "active" | null, show?: boolean): ExcalidrawView | null;
     /**
      * Returns the Excalidraw API for the current view.
      * @returns {ExcalidrawImperativeAPI} The Excalidraw API.
@@ -1294,11 +1363,14 @@ export declare class ExcalidrawAutomate {
      */
     getColorsFromSVGString(svgString: string): SVGColorInfo;
     /**
-     * Copies elements from the view to elementsDict for editing.
+     * Copies existing scene elements to the workbench as mutable, identity-preserving copies.
+     * The copies can be committed with `addElementsToView()` to update the original
+     * scene elements, or used temporarily by another EA operation and discarded with
+     * `clear()` without modifying the scene.
      * @param {ExcalidrawElement[]} elements - Array of elements to copy.
      * @param {boolean} [copyImages=false] - Whether to copy images as well.
      */
-    copyViewElementsToEAforEditing(elements: ExcalidrawElement[], copyImages?: boolean): void;
+    copyViewElementsToEAforEditing(elements: readonly ExcalidrawElement[], copyImages?: boolean): void;
     /**
      * Toggles full screen mode for the target view.
      * @param {boolean} [forceViewMode=false] - Whether to force view mode.
@@ -1375,6 +1447,44 @@ export declare class ExcalidrawAutomate {
      */
     deregisterThisAsViewEA(): boolean;
     /**
+     * Registers a provider of custom action buttons for the selected-element
+     * context menu (the small toolbar shown above a single selected element).
+     * `getActions` is called with the currently selected element whenever the
+     * selection, element type, fileId, or customData changes, and should
+     * return the buttons to show for that element (an empty array shows
+     * nothing). The menu is temporarily hidden while the selected frame's
+     * title is being edited, so custom actions do not obstruct the title editor.
+     * Registration is tied to the current view: it is automatically
+     * cleared when the view closes, and cleared for this script specifically
+     * if the script's file is deleted while the view is still open. Calling
+     * this a second time for the same script in the same view (e.g. running
+     * the script again while it is already registered) does not create a
+     * duplicate registration - it logs a message and returns null instead.
+     * @param getActions - Given the selected element, returns the action
+     * buttons to display, or an empty array to show none.
+     * @returns A cleanup function that unregisters the provider, or null if
+     * there is no active target view to register against, or if this script
+     * has already registered a provider in this view.
+     */
+    registerElementActionProvider(getActions: (element: ExcalidrawElement) => readonly SelectedElementMenuAction[]): (() => void) | null;
+    /**
+     * Requests permission for the active script to be automatically re-run
+     * every time a new Excalidraw view is opened (see
+     * `ScriptEngine.runAutostartScripts()`). The first time a given script
+     * calls this, the user is prompted to Allow, Deny, or decide later; the
+     * decision persists in plugin settings (viewable/editable via the
+     * "Autostart scripts" command and settings section) and is not asked
+     * again unless the user changes it or previously picked "Ask me later".
+     * A fresh "allow" also immediately re-runs the script in every other
+     * currently-open Excalidraw view, so it attaches everywhere right away
+     * instead of only the next time each view is opened.
+     * @param {string} [message] - Optional script-provided explanation displayed as the second paragraph of the permission prompt.
+     * @returns "allow" if the script is permitted to autostart, "deny" if
+     * the user has denied it, or "pending" if there is no active script or
+     * the user has not yet made a decision.
+     */
+    registerAutostart(message?: string): Promise<"allow" | "deny" | "pending">;
+    /**
      * If set, this callback is triggered when the user closes an Excalidraw view.
      */
     onViewUnloadHook: (view: ExcalidrawView) => void;
@@ -1389,7 +1499,7 @@ export declare class ExcalidrawAutomate {
      * This callback must return a boolean value.
      * In case you want to prevent the excalidraw onLinkHover action you must return false, it will stop the native excalidraw onLinkHover management flow.
      */
-    onLinkHoverHook: (element: NonDeletedExcalidrawElement, linkText: string, view: ExcalidrawView, ea: ExcalidrawAutomate) => boolean;
+    onLinkHoverHook: (element: ExcalidrawElement, linkText: string, view: ExcalidrawView, ea: ExcalidrawAutomate) => boolean;
     /**
      * If set, this callback is triggered, when the user clicks a link in the scene.
      * You can use this callback in case you want to do something additional when the onLinkClick event occurs.
@@ -1623,12 +1733,27 @@ export declare class ExcalidrawAutomate {
      */
     getExportSettings(withBackground: boolean, withTheme: boolean, isMask?: boolean): ExportSettings;
     /**
-     * Gets the elements within a specific area.
-     * @param elements - The elements to check.
-     * @param param1 - The area to check against.
-     * @returns The elements within the area.
+     * Gets elements whose rendered bounds intersect a scene area.
+     *
+     * @param elements - Elements to test, in scene stacking order.
+     * @param area - Rectangle or element defining the scene area.
+     * @param options - Optional margin, marker-frame, and binding expansion rules.
+     * @returns Intersecting elements in their original stacking order.
      */
-    getElementsInArea(elements: NonDeletedExcalidrawElement[], element: NonDeletedExcalidrawElement): ExcalidrawElement[];
+    getElementsInArea(elements: readonly ExcalidrawElement[], area: SceneArea, options?: ElementsInAreaOptions): ExcalidrawElement[];
+    /**
+     * Gets elements whose rendered bounds intersect a scene area.
+     *
+     * @remarks
+     * This explicit name is preferred for new code. `getElementsInArea()` remains
+     * available as a backward-compatible alias and uses the same implementation.
+     *
+     * @param elements - Elements to test, in scene stacking order.
+     * @param area - Rectangle or element defining the scene area.
+     * @param options - Optional margin, marker-frame, and binding expansion rules.
+     * @returns Intersecting elements in their original stacking order.
+     */
+    getElementsIntersectionArea(elements: readonly ExcalidrawElement[], area: SceneArea, options?: ElementsInAreaOptions): ExcalidrawElement[];
     /**
      * Gets the bounding box of the specified elements.
      * The bounding box is the box encapsulating all of the elements completely.
@@ -1676,7 +1801,7 @@ export declare class ExcalidrawAutomate {
      * @param {boolean} [includeFrameElements=false] - Whether to include frame elements in the search.
      * @returns {ExcalidrawElement[]} Array of elements in the same group as the specified element.
      */
-    getElementsInTheSameGroupWithElement(element: ExcalidrawElement, elements: readonly NonDeletedExcalidrawElement[], includeFrameElements?: boolean): ExcalidrawElement[];
+    getElementsInTheSameGroupWithElement(element: ExcalidrawElement, elements: readonly ExcalidrawElement[], includeFrameElements?: boolean): ExcalidrawElement[];
     /**
      * Gets all the elements from elements[] that are contained in the specified frame.
      * @param {ExcalidrawElement} frameElement - The frame element.
@@ -1684,7 +1809,7 @@ export declare class ExcalidrawAutomate {
      * @param {boolean} [shouldIncludeFrame=false] - Whether to include the frame element in the result.
      * @returns {ExcalidrawElement[]} Array of elements contained in the frame.
      */
-    getElementsInFrame(frameElement: ExcalidrawElement, elements: readonly NonDeletedExcalidrawElement[], shouldIncludeFrame?: boolean): ExcalidrawElement[];
+    getElementsInFrame(frameElement: ExcalidrawElement, elements: readonly ExcalidrawElement[], shouldIncludeFrame?: boolean): ExcalidrawElement[];
     /**
      * Sets the active script for the ScriptEngine.
      * @param {string} scriptName - The name of the active script.
@@ -1764,7 +1889,10 @@ export declare class ExcalidrawAutomate {
      */
     generateElementId(): string;
     /**
-     * Clones the specified element with a new ID.
+     * Clones the specified element with a new ID for insertion as a genuine duplicate.
+     * Do not use this to edit an existing scene element; use
+     * `copyViewElementsToEAforEditing()` and retrieve the workbench copy by its
+     * original ID instead.
      * @param {ExcalidrawElement} element - The element to clone.
      * @returns {ExcalidrawElement} The cloned element with a new ID.
      */
@@ -1880,9 +2008,236 @@ export declare class ExcalidrawAutomate {
      */
     getMathEditorExtensions(): (LRLanguage | Extension)[];
     /**
-     * Destroys the ExcalidrawAutomate instance, clearing all references and data.
+     * Destroys this EA once, first releasing registered external resources and
+     * then clearing the ordinary EA state and references.
      */
     destroy(): void;
+}
+
+/* ******************************** */
+/* lib/types/AIUtilTypes.d.ts */
+/* ******************************** */
+export type AIProvider = "openai" | "anthropic" | "google" | "xai" | "openai-compatible";
+export type AIFileInput = string | {
+    url: string;
+    filename?: string;
+    mimeType?: string;
+} | {
+    dataURL: string;
+    filename?: string;
+    mimeType?: string;
+};
+export type AIImageInput = string | {
+    url: string;
+    detail?: "low" | "high" | "auto";
+    filename?: string;
+    mimeType?: string;
+} | {
+    dataURL: string;
+    detail?: "low" | "high" | "auto";
+    filename?: string;
+    mimeType?: string;
+};
+export type AIImageModelCapability = {
+    supportedSizes: string[];
+    supportsPromptImageTransforms: boolean;
+    supportsMaskImageEdits: boolean;
+};
+export type AIProviderProfile = {
+    provider: AIProvider;
+    apiKey: string;
+    baseURL: string;
+};
+export type AIModelConfig = {
+    providerId: string;
+    model: string;
+    endpoint?: string;
+    multimodalSupport?: boolean;
+};
+export type AIImageModelConfig = AIModelConfig & AIImageModelCapability;
+export type ExcalidrawAISettings = {
+    enabled: boolean;
+    providerProfiles: Record<string, {
+        provider: AIProvider;
+        baseURL: string;
+        hasApiKey: boolean;
+    }>;
+    textModels: Record<string, AIModelConfig>;
+    imageModels: Record<string, AIImageModelConfig>;
+    defaultTextModel: string;
+    defaultMultimodalTextModel: string;
+    defaultImageModel: string;
+    defaultMaxOutgoingTokens: number;
+    defaultMaxResponseTokens: number;
+};
+export type OpenAIImageURLPart = {
+    type: "image_url";
+    image_url: string | {
+        url: string;
+        detail?: "low" | "high" | "auto";
+    };
+};
+type MessageContent = string | ({
+    type: "text";
+    text: string;
+} | OpenAIImageURLPart)[];
+export type GPTCompletionRequest = {
+    model: string;
+    messages?: {
+        role?: "system" | "user" | "assistant" | "function";
+        content?: MessageContent;
+        name?: string | undefined;
+    }[];
+    functions?: {
+        name: string;
+        description?: string;
+        parameters?: Record<string, string | number | boolean | null | Record<string, string | number | boolean | null>>;
+    }[] | undefined;
+    function_call?: "none" | "auto" | {
+        name: string;
+    } | undefined;
+    stream?: boolean | undefined;
+    temperature?: number | undefined;
+    top_p?: number | undefined;
+    max_tokens?: number | undefined;
+    max_completion_tokens?: number | undefined;
+    n?: number | undefined;
+    best_of?: number | undefined;
+    frequency_penalty?: number | undefined;
+    presence_penalty?: number | undefined;
+    logit_bias?: {
+        [x: string]: number;
+    } | undefined;
+    stop?: (string[] | string) | undefined;
+    size?: string;
+    quality?: "standard" | "hd";
+    prompt?: string;
+    image?: string;
+    mask?: string;
+};
+export type AIRequestMessagePart = {
+    type: "text";
+    text: string;
+} | {
+    type: "image";
+    image: AIImageInput;
+} | {
+    type: "file";
+    file: AIFileInput;
+} | {
+    type: "audio";
+    audio: AIFileInput;
+};
+export type AIRequestMessage = {
+    role: "system" | "user" | "assistant";
+    content: string | AIRequestMessagePart[];
+};
+export type AITextUsageEntry = {
+    inputTokens: number;
+    outputTokens: number;
+};
+export type AIImageUsageEntry = {
+    generations: number;
+};
+export type AIUsageData = {
+    textModels: Record<string, AITextUsageEntry>;
+    imageModels: Record<string, AIImageUsageEntry>;
+    totalInputTokens: number;
+    totalOutputTokens: number;
+    totalImageGenerations: number;
+};
+export type AIRequest = {
+    provider?: AIProvider;
+    baseURL?: string;
+    apiKey?: string;
+    model?: string;
+    textModelId?: string;
+    imageModelId?: string;
+    image?: AIImageInput;
+    text?: string;
+    instruction?: string;
+    systemPrompt?: string;
+    messages?: AIRequestMessage[];
+    temperature?: number;
+    maxOutgoingTokens?: number;
+    maxTokens?: number;
+    imageGenerationProperties?: {
+        size?: string;
+        quality?: "standard" | "hd";
+        n?: number;
+        mask?: AIImageInput;
+    };
+};
+
+/* ************************************** */
+/* lib/types/elementActionTypes.d.ts */
+/* ************************************** */
+/**
+ * Types for the selected-element action menu provider mechanism
+ * (`view.selectedElementActionsMenu`), shared between the view-owned
+ * `SelectedElementActionsMenu` component and the public
+ * `ExcalidrawAutomate.registerElementActionProvider()` scripting API.
+ */
+import type { ExcalidrawElement } from "@zsviczian/excalidraw/types/element/src/types";
+export type SelectedElementMenuAction = {
+    id: string;
+    title: string;
+    icon: string;
+    action: () => void;
+};
+export type SelectedElementMenuProvider = {
+    id: string;
+    getActions: (element: ExcalidrawElement) => readonly SelectedElementMenuAction[];
+};
+
+/* ************************************** */
+/* lib/types/embeddedFileLoaderTypes.d.ts */
+/* ************************************** */
+export declare const IMAGE_MIME_TYPES: {
+    readonly svg: "image/svg+xml";
+    readonly png: "image/png";
+    readonly jpg: "image/jpeg";
+    readonly jpeg: "image/jpeg";
+    readonly gif: "image/gif";
+    readonly webp: "image/webp";
+    readonly bmp: "image/bmp";
+    readonly ico: "image/x-icon";
+    readonly avif: "image/avif";
+    readonly jfif: "image/jfif";
+};
+export type ImgData = {
+    mimeType: MimeType;
+    fileId: FileId;
+    dataURL: DataURL;
+    created: number;
+    loadedFromCache?: boolean;
+    hasSVGwithBitmap: boolean;
+    size: Size;
+    pdfPageViewProps?: PDFPageViewProps;
+    renderScale?: number;
+};
+export declare type MimeType = ValueOf<typeof IMAGE_MIME_TYPES> | "application/octet-stream";
+export type FileData = BinaryFileData & {
+    size: Size;
+    loadedFromCache?: boolean;
+    hasSVGwithBitmap: boolean;
+    shouldScale: boolean;
+    pdfPageViewProps?: PDFPageViewProps;
+    renderScale?: number;
+};
+export type PDFPageViewProps = {
+    left: number;
+    bottom: number;
+    right: number;
+    top: number;
+    rotate?: number;
+};
+export type Size = {
+    height: number;
+    width: number;
+};
+export interface ColorMap {
+    [color: string]: string;
 }
 
 /* ************************************** */
@@ -1931,171 +2286,155 @@ export interface AddImageOptions {
     anchor?: boolean;
     colorMap?: ColorMap;
 }
-
-/* ************************************** */
-/* lib/types/sidepanelTabTypes.d.ts */
-/* ************************************** */
-/**
- * SidepanelTab defines the public surface of a sidepanel tab as exposed to scripts.
- * Tabs are lightweight modal-like containers with their own DOM (title/content) that the host sidepanel activates, focuses, and closes.
- * Typical flow for scripts:
- * 1) Create the tab via ea.createSidepanelTab(title, persist=false, reveal=true). Note the sidepanelTab is immediately created even if not revealed.
- *    If the sidepanel tab is the first in the sidepanel, then onOpen will not be called becase the tab is already open/active.
- *    Reveal simply opens the obisidan sidepanel and the Excalidraw sidepanel view which already displays the active tab.
- * 2) Render UI into `contentEl` or use `setContent(...)` / `setTitle(...)`.
- * 3) Implement lifecycle hooks: `onOpen` (only runs when the user changes tabs in the Excalidraw sidepanel), `onFocus(view)` (runs on host focus changes), `onClose`/`setCloseCallback` (cleanup), `onExcalidrawViewClosed` (canvas closed).
- *    Use `onWindowMigrated(win)` to reattach any window-bound event handlers if the sidepanel moves between the main workspace and a popout window (the DOM is reparented during this migration). The `win` argument is the new Window hosting the sidepanel DOM.
- * 4) Use `setDisabled`, `focus`, `close`, `reset`, and persistence helpers (from host) as needed.
- * 5) Use ea.sidepanelTab.open() to show the sidepanel tab associated with the script.
- * 6) When the sidepanel is nolonger required the script should call ea.sidepanelTab.close() to close the tab and trigger cleanup.
- * The sidpanel associated with an ea script is available on ea.sidepanelTab. Persisted tabs are restored on Obsidian startup, such that scripts associated with the persisted tabs are
- * loaded and executed on Excalidraw startup, and the scripts are in turn responsible for recreating their sidepanel tabs via ea.createSidepanelTab as per their normal script initiation sequence.
- * This description is intentionally explicit so an LLM can generate sidepanel-aware script code without inspecting the implementation.
- */
-export interface SidepanelTab {
-    /** Unique tab identifier used by the host sidepanel. */
-    readonly id: string;
-    /** Optional script name backing this tab (used for persistence and lookup). */
-    readonly scriptName?: string;
-    /** Current title shown in the sidepanel selector. */
-    readonly title: string;
-    /** Root container element for the tab (same as modalEl). */
-    readonly containerEl: HTMLDivElement;
-    /** Wrapper element for the tab. */
-    readonly modalEl: HTMLDivElement;
-    /** Content element where scripts render their UI. */
-    readonly contentEl: HTMLDivElement;
-    /** Title element whose text mirrors `title`. */
-    readonly titleEl: HTMLDivElement;
+/** A rectangular region in Excalidraw scene coordinates. */
+export interface SceneArea {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    /** Optional ID of an element representing the area. */
+    id?: string;
+}
+/** Controls how {@link ExcalidrawAutomate.getElementsInArea} selects elements. */
+export interface ElementsInAreaOptions {
+    /** Expands the area by this many scene units on every side. */
+    margin?: number;
+    /** Includes marker frames. Existing behavior excludes them by default. */
+    includeMarkerFrames?: boolean;
+    /** Includes containers, bound elements, and arrow binding targets needed by the result. */
+    includeBoundElements?: boolean;
+}
+/** Restricts a view image export to a rectangular scene region. */
+export interface ViewExportArea extends SceneArea {
+    /** Expands both the selected content and exported viewport on every side. */
+    margin?: number;
+    /** Includes marker frames in the export candidate set. */
+    includeMarkerFrames?: boolean;
     /**
-     * Focus hook fired when the host marks this tab active; set by scripts.
-     * Because sidpanel tabs may outlive their associated Excalidraw views on focus is designed to notify scripts of the most recently active view.
-     * The script can verify if the view has changed by comparing against ea.targetView (ea.targetView === view means no change).
-     * The script is responsible for calling ea.setView(view) if it wishes to bind to the new view.
-     * The script may also wish to call ea.clear() or ea.reset() to discard state associated with the prior view.
-     * In case the script performs view specific actions it should update its UI in onFocus when the received view !== ea.targetView.
-     * @param view The most recently active ExcalidrawView, or null if no ExcalidrawViews are present in the workspace.
+     * Includes containers, bound elements, and arrow binding targets needed to
+     * render intersecting elements. Defaults to `true` for area exports.
      */
-    onFocus: (view: ExcalidrawView | null) => void;
-    /** Hook fired when the associated Excalidraw view closes; set by ScriptEngine. */
-    onExcalidrawViewClosed: () => void;
-    /** Hook fired when the sidepanel's DOM is migrated to another window (e.g., into or out of a popout) so scripts can rebind listeners. */
-    onWindowMigrated: (win: Window) => void;
-    /** Clears all children from the content element. */
-    clear(): void;
-    /** Sets the tab title and updates host UI; returns the tab for chaining. */
-    setTitle(title: string): this;
-    /** Replaces tab content with text or a fragment; returns the tab for chaining. */
-    setContent(content: string | DocumentFragment): this;
-    /** Activates this tab within the host sidepanel. */
-    focus(): void;
-    /** Marks the tab open, activates it, and triggers `onOpen`. reveal default is true */
-    open(reveal?: boolean): void;
-    /** Runs close handlers then asks the host to remove the tab. */
-    close(): void;
-    /** Lifecycle hook called when the tab is opened/activated. */
-    onOpen(): Promise<void> | void;
-    /** Lifecycle hook called once when the tab closes. */
-    onClose(): void;
-    /** Toggles pointer interactivity and opacity; returns the tab for chaining. */
-    setDisabled(disabled: boolean): this;
-    /** Returns the ExcalidrawAutomate instance associated with the sidepanel tab */
-    getHostEA(): ExcalidrawAutomate;
-    /** Returns whether the tab is currently visible in the UI */
-    isVisible(): boolean;
-    /** Returns whether the tab is the currently active tab in the sidepanel */
-    isActiveTab(): boolean;
+    includeBoundElements?: boolean;
+}
+/** Options shared by view-based SVG and PNG exports. */
+export interface ViewImageExportOptions {
+    withBackground?: boolean;
+    theme?: AppState["theme"];
+    frameRendering?: FrameRenderingOptions;
+    padding?: number;
+    selectedOnly?: boolean;
+    embedScene?: boolean;
+    /** Complete replacement for the view elements used by the export. */
+    elementsOverride?: readonly ExcalidrawElement[];
+    /** Filters and anchors the export to an exact scene rectangle. */
+    exportArea?: ViewExportArea;
+}
+/** Options for {@link ExcalidrawAutomate.createViewSVG}. */
+export interface ViewSVGExportOptions extends ViewImageExportOptions {
+    skipInliningFonts?: boolean;
+}
+/** Options for {@link ExcalidrawAutomate.createViewPNG}. */
+export interface ViewPNGExportOptions extends ViewImageExportOptions {
+    /** Raster scale applied to the exported viewport. */
+    scale?: number;
 }
 
-/* ***************************** */
-/* lib/types/penTypes.d.ts */
-/* ***************************** */
-export interface StrokeOptions {
-    thinning: number;
-    smoothing: number;
-    streamline: number;
-    easing: string;
-    simulatePressure?: boolean;
-    start: {
-        cap: boolean;
-        taper: number | boolean;
-        easing: string;
-    };
-    end: {
-        cap: boolean;
-        taper: number | boolean;
-        easing: string;
-    };
-}
-export interface PenOptions {
-    highlighter: boolean;
-    constantPressure: boolean;
-    hasOutline: boolean;
-    outlineWidth: number;
-    options: StrokeOptions;
-}
-export declare type ExtendedFillStyle = "dots" | "zigzag" | "zigzag-line" | "dashed" | "hachure" | "cross-hatch" | "solid" | "";
-export declare type PenType = "default" | "highlighter" | "finetip" | "fountain" | "marker" | "thick-thin" | "thin-thick-thin";
-export interface PenStyle {
-    type: PenType;
-    freedrawOnly: boolean;
-    strokeColor?: string;
-    backgroundColor?: string;
-    fillStyle: ExtendedFillStyle;
-    strokeWidth: number;
-    roughness: number;
-    penOptions: PenOptions;
-}
-
-/* ****************************** */
-/* lib/types/utilTypes.d.ts */
-/* ****************************** */
-export type FILENAMEPARTS = {
-    filepath: string;
-    hasBlockref: boolean;
-    hasGroupref: boolean;
-    hasTaskbone: boolean;
-    hasArearef: boolean;
-    hasFrameref: boolean;
-    hasClippedFrameref: boolean;
-    hasSectionref: boolean;
-    blockref: string;
-    sectionref: string;
-    linkpartReference: string;
-    linkpartAlias: string;
+/* ************************************** */
+/* lib/types/excalidrawElementTypes.d.ts */
+/* ************************************** */
+export type NamedExcalidrawFrameElement = ExcalidrawFrameElement & {
+    frameRole?: string;
+    name?: string;
 };
-export declare enum PreviewImageType {
-    PNG = "PNG",
-    SVGIMG = "SVGIMG",
-    SVG = "SVG"
+
+/* ************************************** */
+/* lib/types/excalidrawViewTypes.d.ts */
+/* ************************************** */
+export type Position = {
+    x: number;
+    y: number;
+};
+export interface SelectedElementWithLink {
+    id: string | null;
+    text: string | null;
 }
-export interface FrameRenderingOptions {
-    enabled: boolean;
-    name: boolean;
-    outline: boolean;
-    clip: boolean;
+export interface SelectedImage {
+    id: string | null;
+    fileId: FileId | null;
 }
-export type PaneTarget = "active-pane" | "new-pane" | "popout-window" | "new-tab" | "md-properties";
-export interface NestedFileNode {
-    file: TFile;
-    /**
-     * All distinct dependency paths from the root file down to this embedded file.
-     * Each path is an ordered array of TFile objects starting with the `rootFile` at index 0.
-     *
-     * @example
-     * If Root -> A -> B2.2 and Root -> B -> B2 -> B2.2
-     * The paths for B2.2 will be:
-     * [
-     *   [Root, A, B2.2],
-     *   [Root, B, B2, B2.2]
-     * ]
-     *
-     * Usage: To find which top-level embeds to reload if this file changes,
-     * you can map over `paths` and collect `path[1]`.
-     */
-    paths: TFile[][];
+export interface EmbeddableLeafRef {
+    leaf: WorkspaceLeaf;
+    node?: ObsidianCanvasNode;
+    editNode?: () => void;
 }
-export type NestedFileMap = Map<TFile, NestedFileNode>;
+export interface AutoexportConfig {
+    png: boolean;
+    svg: boolean;
+    excalidraw: boolean;
+    theme: "light" | "dark" | "both";
+}
+export type ExcalidrawViewScene = Omit<SceneData, "collaborators" | "captureUpdate"> & {
+    elements: NonNullable<SceneData["elements"]>;
+    appState: NonNullable<SceneData["appState"]>;
+    files: BinaryFiles;
+};
+export type ExcalidrawViewAppState = Omit<Partial<AppState>, "showHyperlinkPopup"> & {
+    pinnedScripts?: string[];
+    showHyperlinkPopup?: AppState["showHyperlinkPopup"] | {
+        newValue: string;
+        oldValue: string;
+    };
+};
+export type ExcalidrawViewUpdateScene = {
+    elements?: ExcalidrawElement[];
+    appState?: ExcalidrawViewAppState;
+    files?: BinaryFiles;
+    forceFlushSync?: boolean;
+    captureUpdate?: CaptureUpdateActionType;
+    storeAction?: "capture" | "none" | "update";
+};
+export type ExcalidrawLinkOpenEvent = Parameters<NonNullable<ExcalidrawProps["onLinkOpen"]>>[1];
+export type { StencilLibraryData } from "./stencilLibraryTypes";
+export interface ExcalidrawEphemeralState {
+    rename?: string;
+    subpath?: string;
+    line?: number;
+    match?: {
+        content?: string;
+        matches?: [number, number][];
+    };
+}
+export type MarkdownViewOpenState = ViewStateResult | {
+    focus: boolean;
+} | ExcalidrawEphemeralState;
+export type MarkdownBlockCacheEntry = {
+    display: string;
+    node: {
+        type: string;
+        id?: string;
+        [key: string]: unknown;
+    };
+};
+export interface ViewSemaphores {
+    warnAboutLinearElementLinkClick: boolean;
+    embeddableIsEditingSelf: boolean;
+    popoutUnload: boolean;
+    windowMigrating: boolean;
+    viewloaded: boolean;
+    viewunload: boolean;
+    scriptsReady: boolean;
+    justLoaded: boolean;
+    preventAutozoom: boolean;
+    autosaving: boolean;
+    forceSaving: boolean;
+    dirty: string | null;
+    preventReload: boolean;
+    isEditingText: boolean;
+    saving: boolean;
+    hoverSleep: boolean;
+    wheelTimeout: number | null;
+    shouldSaveImportedImage: boolean;
+}
 
 /* ************************************ */
 /* lib/types/exportUtilTypes.d.ts */
@@ -2254,210 +2593,498 @@ export interface ElectronAPI {
     webUtils: ElectronWebUtilsLike;
 }
 
-/* ************************************** */
-/* lib/types/embeddedFileLoaderTypes.d.ts */
-/* ************************************** */
-export declare const IMAGE_MIME_TYPES: {
-    readonly svg: "image/svg+xml";
-    readonly png: "image/png";
-    readonly jpg: "image/jpeg";
-    readonly jpeg: "image/jpeg";
-    readonly gif: "image/gif";
-    readonly webp: "image/webp";
-    readonly bmp: "image/bmp";
-    readonly ico: "image/x-icon";
-    readonly avif: "image/avif";
-    readonly jfif: "image/jfif";
-};
-export type ImgData = {
-    mimeType: MimeType;
-    fileId: FileId;
-    dataURL: DataURL;
-    created: number;
-    loadedFromCache?: boolean;
-    hasSVGwithBitmap: boolean;
-    size: Size;
-    pdfPageViewProps?: PDFPageViewProps;
-    renderScale?: number;
-};
-export declare type MimeType = ValueOf<typeof IMAGE_MIME_TYPES> | "application/octet-stream";
-export type FileData = BinaryFileData & {
-    size: Size;
-    loadedFromCache?: boolean;
-    hasSVGwithBitmap: boolean;
-    shouldScale: boolean;
-    pdfPageViewProps?: PDFPageViewProps;
-    renderScale?: number;
-};
-export type PDFPageViewProps = {
-    left: number;
-    bottom: number;
-    right: number;
-    top: number;
-    rotate?: number;
-};
-export type Size = {
-    height: number;
-    width: number;
-};
-export interface ColorMap {
-    [color: string]: string;
+/* ****************************** */
+/* lib/types/fontTypes.d.ts */
+/* ****************************** */
+/** A selectable font value and the optional vault file used for its preview. */
+export interface SelectableFontOption {
+    value: string;
+    label: string;
+    fontFile?: TFile;
 }
 
 /* ******************************** */
-/* lib/types/AIUtilTypes.d.ts */
+/* lib/types/githubTypes.d.ts */
 /* ******************************** */
-export type AIProvider = "openai" | "anthropic" | "google" | "xai" | "openai-compatible";
-export type AIFileInput = string | {
-    url: string;
-    filename?: string;
-    mimeType?: string;
-} | {
-    dataURL: string;
-    filename?: string;
-    mimeType?: string;
+/**
+ * Metadata entry describing a file in the remote EA scripts directory listing.
+ */
+export type RemoteDirectoryInfo = {
+    fname: string;
+    mtime: number;
 };
-export type AIImageInput = string | {
-    url: string;
-    detail?: "low" | "high" | "auto";
-    filename?: string;
-    mimeType?: string;
-} | {
-    dataURL: string;
-    detail?: "low" | "high" | "auto";
-    filename?: string;
-    mimeType?: string;
-};
-export type AIImageModelCapability = {
-    supportedSizes: string[];
-    supportsPromptImageTransforms: boolean;
-    supportsMaskImageEdits: boolean;
-};
-export type AIProviderProfile = {
-    provider: AIProvider;
-    apiKey: string;
-    baseURL: string;
-};
-export type AIModelConfig = {
-    providerId: string;
-    model: string;
-    endpoint?: string;
-    multimodalSupport?: boolean;
-};
-export type AIImageModelConfig = AIModelConfig & AIImageModelCapability;
-export type ExcalidrawAISettings = {
+
+/* ************************************** */
+/* lib/types/markdownImageTypes.d.ts */
+/* ************************************** */
+export declare const MARKDOWN_IMAGE_CUSTOM_DATA_KEY = "markdownImage";
+export declare const MARKDOWN_IMAGE_EMBEDDED_FILE_TOKEN = "markdown-image";
+export declare const MARKDOWN_IMAGE_SCHEMA_VERSION = 1;
+export type MarkdownImageSource = "local" | "external";
+/** Persisted behavior for deleting a local Markdown image from the scene. */
+export type MarkdownImageDeletionPreference = "ask" | "keep" | "delete";
+export type MarkdownImageTransclusionRenderSettings = {
     enabled: boolean;
-    providerProfiles: Record<string, {
-        provider: AIProvider;
-        baseURL: string;
-        hasApiKey: boolean;
-    }>;
-    textModels: Record<string, AIModelConfig>;
-    imageModels: Record<string, AIImageModelConfig>;
-    defaultTextModel: string;
-    defaultMultimodalTextModel: string;
-    defaultImageModel: string;
-    defaultMaxOutgoingTokens: number;
-    defaultMaxResponseTokens: number;
+    fontFamily: string;
+    fontColor: string;
+    border: {
+        enabled: boolean;
+        color: string;
+    };
+    css: string;
 };
-export type OpenAIImageURLPart = {
-    type: "image_url";
-    image_url: string | {
+export type MarkdownImageRenderSettings = {
+    width: number;
+    paddingBottom: number;
+    fontFamily: string;
+    fontColor: string;
+    border: {
+        enabled: boolean;
+        color: string;
+    };
+    css: string;
+    transclusion: MarkdownImageTransclusionRenderSettings;
+};
+export type MarkdownImageCustomData = {
+    schemaVersion: typeof MARKDOWN_IMAGE_SCHEMA_VERSION;
+    /** Advisory revision for changes made through the Excalidraw UI. */
+    version: number;
+    source: MarkdownImageSource;
+    render: MarkdownImageRenderSettings;
+};
+export type MarkdownImageData = {
+    markdown: string;
+};
+export type MarkdownImageSettings = {
+    defaults: MarkdownImageRenderSettings;
+};
+
+/* ********************************* */
+/* lib/types/mathJaxTypes.d.ts */
+/* ********************************* */
+/** Options for rendering LaTeX through the Excalidraw Extras MathJax service. */
+export interface MathJaxRenderOptions {
+    /** Propagate MathJax conversion errors instead of returning null. */
+    throwOnError?: boolean;
+}
+
+/* ************************************** */
+/* lib/types/obsidianDeclarativeSettings.d.ts */
+/* ************************************** */
+/**
+ * Type-only compatibility boundary for Obsidian's declarative settings API.
+ *
+ * The project intentionally remains compiled against Obsidian 1.8.7. These
+ * structural types mirror only the Obsidian 1.13.0 surface used by the
+ * settings migration and must not be treated as evidence that the methods are
+ * available at runtime. Keep runtime calls behind
+ * {@link getDeclarativeSettingTabRuntime}.
+ *
+ * Features introduced after 1.13.0 are deliberately excluded. When the
+ * pinned Obsidian dependency eventually includes these declarations, replace
+ * this file with type-only imports from `obsidian`.
+ */
+import type { PluginSettingTab, Setting } from "obsidian";
+type SettingControlBase<V, K extends string> = {
+    key: K;
+    defaultValue?: V;
+    validate?: (value: V) => string | void | Promise<string | void>;
+    disabled?: boolean | (() => boolean);
+};
+type SettingToggleControl<K extends string> = SettingControlBase<boolean, K> & {
+    type: "toggle";
+};
+type SettingDropdownControl<K extends string> = SettingControlBase<string, K> & {
+    type: "dropdown";
+    options: Record<string, string>;
+};
+type SettingTextControl<K extends string> = SettingControlBase<string, K> & {
+    type: "text";
+    placeholder?: string;
+};
+type SettingSliderControl<K extends string> = SettingControlBase<number, K> & {
+    type: "slider";
+    min: number;
+    max: number;
+    step: number;
+};
+type SettingControl<K extends string> = SettingToggleControl<K> | SettingDropdownControl<K> | SettingTextControl<K> | SettingSliderControl<K>;
+type SettingDefinitionBase = {
+    name: string;
+    desc?: string | DocumentFragment;
+    aliases?: string[];
+    searchable?: boolean | (() => boolean);
+    visible?: boolean | (() => boolean);
+};
+type SettingDefinitionControl<K extends string> = SettingDefinitionBase & {
+    control: SettingControl<K>;
+    action?: never;
+    render?: never;
+};
+/** Minimal structural surface passed to a declarative `render` callback. */
+interface SettingGroupLike {
+    listEl: HTMLElement;
+}
+type SettingDefinitionRender = SettingDefinitionBase & {
+    render: (setting: Setting, group: SettingGroupLike) => void | (() => void);
+    action?: never;
+    control?: never;
+};
+export type SettingDefinition<K extends string = string> = SettingDefinitionControl<K> | SettingDefinitionRender;
+type SettingDefinitionPage<K extends string = string> = {
+    type: "page";
+    name: string;
+    desc?: string | DocumentFragment;
+    items?: SettingDefinitionItem<K>[];
+    visible?: boolean | (() => boolean);
+};
+/**
+ * Minimal Obsidian 1.13.0 definition union used by this migration.
+ *
+ * This is intentionally a local structural equivalent rather than an
+ * augmentation of the installed Obsidian 1.8.7 module.
+ */
+export type SettingDefinitionItem<K extends string = string> = SettingDefinition<K> | SettingDefinitionPage<K>;
+/**
+ * Obsidian 1.13.0 methods required by the declarative settings adapter.
+ * Their presence must be checked at runtime before use.
+ */
+export interface DeclarativeSettingTabRuntime<K extends string = string> {
+    getSettingDefinitions(): SettingDefinitionItem<K>[];
+    getControlValue(key: string): unknown;
+    setControlValue(key: string, value: unknown): void | Promise<void>;
+    update(): void;
+    refreshDomState(): void;
+}
+/**
+ * Returns the Obsidian 1.13.0 declarative settings facade when every required
+ * runtime method exists, otherwise returns `null` for the legacy path.
+ */
+export declare function getDeclarativeSettingTabRuntime<K extends string = string>(tab: PluginSettingTab): (PluginSettingTab & DeclarativeSettingTabRuntime<K>) | null;
+
+/* ******************************* */
+/* lib/types/pdfJsTypes.d.ts */
+/* ******************************* */
+export type PdfJsPageViewport = {
+    width: number;
+    height: number;
+};
+export type PdfJsPageProxy = {
+    getViewport(options: {
+        scale: number;
+    }): PdfJsPageViewport;
+    render(options: {
+        canvasContext: CanvasRenderingContext2D;
+        background: string;
+        viewport: PdfJsPageViewport;
+    }): {
+        promise: Promise<void>;
+    };
+    rotate?: number;
+    view: [number, number, number, number];
+};
+export type PdfJsDocumentProxy = {
+    destroy(): void;
+    getPage(pageNumber: number): Promise<PdfJsPageProxy>;
+    numPages: number;
+};
+export type PdfJsDocumentLoadResult = {
+    promise: Promise<PdfJsDocumentProxy>;
+};
+export type PdfJsLibrary = {
+    GlobalWorkerOptions: {
+        workerSrc: string;
+    };
+    getDocument(options: {
         url: string;
-        detail?: "low" | "high" | "auto";
-    };
+        wasmUrl?: string;
+        cMapUrl?: string;
+        cMapPacked?: boolean;
+        standardFontDataUrl?: string;
+        iccUrl?: string;
+    }): PdfJsDocumentLoadResult;
 };
-type MessageContent = string | ({
-    type: "text";
-    text: string;
-} | OpenAIImageURLPart)[];
-export type GPTCompletionRequest = {
-    model: string;
-    messages?: {
-        role?: "system" | "user" | "assistant" | "function";
-        content?: MessageContent;
-        name?: string | undefined;
-    }[];
-    functions?: {
-        name: string;
-        description?: string;
-        parameters?: Record<string, string | number | boolean | null | Record<string, string | number | boolean | null>>;
-    }[] | undefined;
-    function_call?: "none" | "auto" | {
-        name: string;
-    } | undefined;
-    stream?: boolean | undefined;
-    temperature?: number | undefined;
-    top_p?: number | undefined;
-    max_tokens?: number | undefined;
-    max_completion_tokens?: number | undefined;
-    n?: number | undefined;
-    best_of?: number | undefined;
-    frequency_penalty?: number | undefined;
-    presence_penalty?: number | undefined;
-    logit_bias?: {
-        [x: string]: number;
-    } | undefined;
-    stop?: (string[] | string) | undefined;
-    size?: string;
-    quality?: "standard" | "hd";
-    prompt?: string;
-    image?: string;
-    mask?: string;
+
+/* ***************************** */
+/* lib/types/penTypes.d.ts */
+/* ***************************** */
+/**
+ * Local names for the custom-pen types, aliased to the canonical
+ * definitions owned by the Excalidraw fork
+ * (packages/excalidraw/obsidianTypes.ts, referenced by
+ * `AppState.customPens`/`currentStrokeOptions`). The fork cannot depend on
+ * this plugin, so the shapes live there and are aliased here rather than
+ * duplicated -- edit the fork's `Obsidian*` types, not these.
+ */
+export type StrokeOptions = ObsidianPenStrokeOptions;
+export type PenOptions = ObsidianPenOptions;
+export type ExtendedFillStyle = ObsidianExtendedFillStyle;
+export type PenType = ObsidianPenType;
+export type PenStyle = ObsidianPenStyle;
+
+/* ******************************** */
+/* lib/types/promptTypes.d.ts */
+/* ******************************** */
+export type ButtonDefinition = {
+    caption: string;
+    tooltip?: string;
+    action: (input: string) => string | void | null;
+    iconId?: string;
 };
-export type AIRequestMessagePart = {
-    type: "text";
-    text: string;
-} | {
-    type: "image";
-    image: AIImageInput;
-} | {
-    type: "file";
-    file: AIFileInput;
-} | {
-    type: "audio";
-    audio: AIFileInput;
+export interface InputPromptOptions {
+    header: string;
+    placeholder?: string;
+    value?: string;
+    buttons?: ButtonDefinition[];
+    lines?: number;
+    displayEditorButtons?: boolean;
+    customComponents?: (container: HTMLElement) => void;
+    blockPointerInputOutsideModal?: boolean;
+    controlsOnTop?: boolean;
+    draggable?: boolean;
+}
+
+/* ************************************** */
+/* lib/types/sidepanelTabTypes.d.ts */
+/* ************************************** */
+/**
+ * SidepanelTab defines the public surface of a sidepanel tab as exposed to scripts.
+ * Tabs are lightweight modal-like containers with their own DOM (title/content) that the host sidepanel activates, focuses, and closes.
+ * Typical flow for scripts:
+ * 1) Create the tab via ea.createSidepanelTab(title, persist=false, reveal=true). Note the sidepanelTab is immediately created even if not revealed.
+ *    If the sidepanel tab is the first in the sidepanel, then onOpen will not be called becase the tab is already open/active.
+ *    Reveal simply opens the obisidan sidepanel and the Excalidraw sidepanel view which already displays the active tab.
+ * 2) Render UI into `contentEl` or use `setContent(...)` / `setTitle(...)`.
+ * 3) Implement lifecycle hooks: `onOpen` (only runs when the user changes tabs in the Excalidraw sidepanel), `onFocus(view)` (runs on host focus changes), `onClose`/`setCloseCallback` (cleanup), `onExcalidrawViewClosed` (canvas closed).
+ *    Use `onWindowMigrated(win)` to reattach any window-bound event handlers if the sidepanel moves between the main workspace and a popout window (the DOM is reparented during this migration). The `win` argument is the new Window hosting the sidepanel DOM.
+ * 4) Use `setDisabled`, `focus`, `close`, `reset`, and persistence helpers (from host) as needed.
+ * 5) Use ea.sidepanelTab.open() to show the sidepanel tab associated with the script.
+ * 6) When the sidepanel is nolonger required the script should call ea.sidepanelTab.close() to close the tab and trigger cleanup.
+ * The sidpanel associated with an ea script is available on ea.sidepanelTab. Persisted tabs are restored on Obsidian startup, such that scripts associated with the persisted tabs are
+ * loaded and executed on Excalidraw startup, and the scripts are in turn responsible for recreating their sidepanel tabs via ea.createSidepanelTab as per their normal script initiation sequence.
+ * This description is intentionally explicit so an LLM can generate sidepanel-aware script code without inspecting the implementation.
+ */
+export interface SidepanelTab {
+    /** Unique tab identifier used by the host sidepanel. */
+    readonly id: string;
+    /** Optional script name backing this tab (used for persistence and lookup). */
+    readonly scriptName?: string;
+    /** Current title shown in the sidepanel selector. */
+    readonly title: string;
+    /** Root container element for the tab (same as modalEl). */
+    readonly containerEl: HTMLDivElement;
+    /** Wrapper element for the tab. */
+    readonly modalEl: HTMLDivElement;
+    /** Content element where scripts render their UI. */
+    readonly contentEl: HTMLDivElement;
+    /** Title element whose text mirrors `title`. */
+    readonly titleEl: HTMLDivElement;
+    /**
+     * Focus hook fired when the host marks this tab active; set by scripts.
+     * Because sidpanel tabs may outlive their associated Excalidraw views on focus is designed to notify scripts of the most recently active view.
+     * The script can verify if the view has changed by comparing against ea.targetView (ea.targetView === view means no change).
+     * The script is responsible for calling ea.setView(view) if it wishes to bind to the new view.
+     * The script may also wish to call ea.clear() or ea.reset() to discard state associated with the prior view.
+     * In case the script performs view specific actions it should update its UI in onFocus when the received view !== ea.targetView.
+     * @param view The most recently active ExcalidrawView, or null if no ExcalidrawViews are present in the workspace.
+     */
+    onFocus: (view: ExcalidrawView | null) => void;
+    /** Hook fired when the associated Excalidraw view closes; set by ScriptEngine. */
+    onExcalidrawViewClosed: () => void;
+    /** Hook fired when the sidepanel's DOM is migrated to another window (e.g., into or out of a popout) so scripts can rebind listeners. */
+    onWindowMigrated: (win: Window) => void;
+    /** Clears all children from the content element. */
+    clear(): void;
+    /** Sets the tab title and updates host UI; returns the tab for chaining. */
+    setTitle(title: string): this;
+    /** Replaces tab content with text or a fragment; returns the tab for chaining. */
+    setContent(content: string | DocumentFragment): this;
+    /** Activates this tab within the host sidepanel. */
+    focus(): void;
+    /** Marks the tab open, activates it, and triggers `onOpen`. reveal default is true */
+    open(reveal?: boolean): void;
+    /** Runs close handlers then asks the host to remove the tab. */
+    close(): void;
+    /** Lifecycle hook called when the tab is opened/activated. */
+    onOpen(): Promise<void> | void;
+    /** Lifecycle hook called once when the tab closes. */
+    onClose(): void;
+    /** Toggles pointer interactivity and opacity; returns the tab for chaining. */
+    setDisabled(disabled: boolean): this;
+    /** Returns the ExcalidrawAutomate instance associated with the sidepanel tab */
+    getHostEA(): ExcalidrawAutomate;
+    /** Returns whether the tab is currently visible in the UI */
+    isVisible(): boolean;
+    /** Returns whether the tab is the currently active tab in the sidepanel */
+    isActiveTab(): boolean;
+}
+
+/* ************************************** */
+/* lib/types/stencilLibraryTypes.d.ts */
+/* ************************************** */
+export type StencilLibraryStorageMode = "data-json" | "vault";
+export type StencilLibraryMigrationStatus = "not-required" | "pending" | "later" | "completed" | "opted-out";
+export type StencilLibraryData = {
+    type?: "excalidrawlib";
+    version?: number;
+    source?: string;
+    library?: LibraryItems;
+    libraryItems?: LibraryItems;
 };
-export type AIRequestMessage = {
-    role: "system" | "user" | "assistant";
-    content: string | AIRequestMessagePart[];
+export type StencilLibraryFileData = Omit<StencilLibraryData, "library" | "libraryItems"> & {
+    libraryItems: LibraryItems;
 };
-export type AITextUsageEntry = {
-    inputTokens: number;
-    outputTokens: number;
+export type StencilLibraryMigrationChoice = "migrate" | "later" | "keep-data-json";
+export type MutableLibraryItem = LibraryItem & {
+    status: LibraryItem["status"];
 };
-export type AIImageUsageEntry = {
-    generations: number;
+
+/* ****************************** */
+/* lib/types/utilTypes.d.ts */
+/* ****************************** */
+export type FILENAMEPARTS = {
+    filepath: string;
+    hasBlockref: boolean;
+    hasGroupref: boolean;
+    hasTaskbone: boolean;
+    hasArearef: boolean;
+    hasFrameref: boolean;
+    hasClippedFrameref: boolean;
+    hasSectionref: boolean;
+    blockref: string;
+    sectionref: string;
+    linkpartReference: string;
+    linkpartAlias: string;
+    /** Optional non-negative export padding parsed from an image-reference link. */
+    padding?: number;
 };
-export type AIUsageData = {
-    textModels: Record<string, AITextUsageEntry>;
-    imageModels: Record<string, AIImageUsageEntry>;
-    totalInputTokens: number;
-    totalOutputTokens: number;
-    totalImageGenerations: number;
+export declare enum PreviewImageType {
+    PNG = "PNG",
+    SVGIMG = "SVGIMG",
+    SVG = "SVG"
+}
+export interface FrameRenderingOptions {
+    enabled: boolean;
+    name: boolean;
+    outline: boolean;
+    clip: boolean;
+}
+export type PaneTarget = "active-pane" | "new-pane" | "popout-window" | "new-tab" | "md-properties";
+export interface NestedFileNode {
+    file: TFile;
+    /**
+     * All distinct dependency paths from the root file down to this embedded file.
+     * Each path is an ordered array of TFile objects starting with the `rootFile` at index 0.
+     *
+     * @example
+     * If Root -> A -> B2.2 and Root -> B -> B2 -> B2.2
+     * The paths for B2.2 will be:
+     * [
+     *   [Root, A, B2.2],
+     *   [Root, B, B2, B2.2]
+     * ]
+     *
+     * Usage: To find which top-level embeds to reload if this file changes,
+     * you can map over `paths` and collect `path[1]`.
+     */
+    paths: TFile[][];
+}
+export type NestedFileMap = Map<TFile, NestedFileNode>;
+
+/* ************************************** */
+/* node_modules/@zsviczian/excalidraw/types/element/src/bounds.d.ts */
+/* ************************************** */
+export type RectangleBox = {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    angle: number;
 };
-export type AIRequest = {
-    provider?: AIProvider;
-    baseURL?: string;
-    apiKey?: string;
-    model?: string;
-    textModelId?: string;
-    imageModelId?: string;
-    image?: AIImageInput;
-    text?: string;
-    instruction?: string;
-    systemPrompt?: string;
-    messages?: AIRequestMessage[];
-    temperature?: number;
-    maxOutgoingTokens?: number;
-    maxTokens?: number;
-    imageGenerationProperties?: {
-        size?: string;
-        quality?: "standard" | "hd";
-        n?: number;
-        mask?: AIImageInput;
-    };
-};
+export type SceneBounds = readonly [
+    sceneX: number,
+    sceneY: number,
+    sceneX2: number,
+    sceneY2: number
+];
+export declare class ElementBounds {
+    private static boundsCache;
+    private static nonRotatedBoundsCache;
+    static getBounds(element: ExcalidrawElement, elementsMap: ElementsMap, nonRotated?: boolean): Bounds;
+    private static calculateBounds;
+}
+export declare const getElementAbsoluteCoords: (element: ExcalidrawElement, elementsMap: ElementsMap, includeBoundText?: boolean) => [number, number, number, number, number, number];
+/**
+ * Given an element, return the line segments that make up the element.
+ *
+ * Uses helpers from /math
+ */
+export declare const getElementLineSegments: (element: ExcalidrawElement, elementsMap: ElementsMap) => LineSegment<GlobalPoint>[];
+/**
+ * Scene -> Scene coords, but in x1,x2,y1,y2 format.
+ *
+ * Rectangle here means any rectangular frame, not an excalidraw element.
+ */
+export declare const getRectangleBoxAbsoluteCoords: (boxSceneCoords: RectangleBox) => number[];
+export declare const getDiamondPoints: (element: ExcalidrawElement) => number[];
+export declare const getCubicBezierCurveBound: (p0: GlobalPoint, p1: GlobalPoint, p2: GlobalPoint, p3: GlobalPoint) => Bounds;
+export declare const getMinMaxXYFromCurvePathOps: (ops: Op[], transformXY?: (p: GlobalPoint) => GlobalPoint) => Bounds;
+export declare const getBoundsFromPoints: <P extends GlobalPoint | LocalPoint>(points: readonly P[], padding?: number) => Bounds;
+/** @returns number in pixels */
+export declare const getArrowheadSize: (arrowhead: Arrowhead) => number;
+/** @returns number in degrees */
+export declare const getArrowheadAngle: (arrowhead: Arrowhead) => Degrees;
+export declare const getArrowheadPoints: (element: ExcalidrawLinearElement, shape: Drawable[], position: "start" | "end", arrowhead: Arrowhead, offsetMultiplier?: number) => number[] | null;
+export declare const getElementBounds: (element: ExcalidrawElement, elementsMap: ElementsMap, nonRotated?: boolean) => Bounds;
+export declare const getCommonBounds: (elements: ElementsMapOrArray, elementsMap?: ElementsMap) => Bounds;
+export declare const getDraggedElementsBounds: (elements: readonly NonDeletedExcalidrawElement[], dragOffset: {
+    x: number;
+    y: number;
+}) => number[];
+export declare const getResizedElementAbsoluteCoords: (element: ExcalidrawElement, nextWidth: number, nextHeight: number, normalizePoints: boolean) => Bounds;
+export declare const getElementPointsCoords: (element: ExcalidrawLinearElement, points: readonly (readonly [number, number])[]) => Bounds;
+export interface BoundingBox {
+    minX: number;
+    minY: number;
+    maxX: number;
+    maxY: number;
+    midX: number;
+    midY: number;
+    width: number;
+    height: number;
+}
+export declare const getCommonBoundingBox: (elements: readonly ExcalidrawElement[] | readonly NonDeleted<ExcalidrawElement>[]) => BoundingBox;
+/**
+ * returns scene coords of user's editor viewport (visible canvas area) bounds
+ */
+export declare const getVisibleSceneBounds: ({ scrollX, scrollY, width, height, zoom, }: AppState) => SceneBounds;
+export declare const getCenterForBounds: (bounds: Bounds) => GlobalPoint;
+/**
+ * Get the axis-aligned bounding box for a given element
+ */
+export declare const aabbForElement: (element: Readonly<ExcalidrawElement>, elementsMap: ElementsMap, offset?: [number, number, number, number]) => Bounds;
+export declare const pointInsideBounds: <P extends GlobalPoint | LocalPoint>(p: P, bounds: Bounds) => boolean;
+export declare const pointInsideBoundsInclusive: <P extends GlobalPoint | LocalPoint>(p: P, bounds: Bounds) => boolean;
+export declare const doBoundsIntersect: (bounds1: Bounds | null, bounds2: Bounds | null) => boolean;
+export declare const boundsContainBounds: (outerBounds: Bounds, innerBounds: Bounds) => boolean;
+/**
+ * High level helper to get elements overlapping a bounding box.
+ * It can be used to get elements overlapping a selection box, for example.
+ *
+ */
+export declare const elementsOverlappingBBox: <T extends ExcalidrawElement>({ elements, elementsMap, bounds, type, excludeElementsInFrames, shouldIgnoreElementFromSelection, }: {
+    elements: readonly T[];
+    elementsMap?: ElementsMap;
+    bounds: Bounds | ExcalidrawElement;
+    /**
+     * - overlap: elements overlapping or inside bounds
+     * - contain: elements inside bounds
+     **/
+    type: "contain" | "overlap";
+    excludeElementsInFrames?: boolean;
+    shouldIgnoreElementFromSelection?: (element: T) => boolean;
+}) => T[];
+export declare const elementCenterPoint: (element: ExcalidrawElement, elementsMap: ElementsMap, xOffset?: number, yOffset?: number) => GlobalPoint;
 
 /* ************************************** */
 /* node_modules/@zsviczian/excalidraw/types/element/src/types.d.ts */
@@ -2649,7 +3276,7 @@ export type Ordered<TElement extends ExcalidrawElement> = TElement & {
 };
 export type OrderedExcalidrawElement = Ordered<ExcalidrawElement>;
 export type NonDeleted<TElement extends ExcalidrawElement> = TElement & {
-    isDeleted: boolean;
+    isDeleted: false;
 };
 export type NonDeletedExcalidrawElement = NonDeleted<ExcalidrawElement>;
 export type ExcalidrawTextElement = _ExcalidrawElementBase & Readonly<{
@@ -2676,6 +3303,13 @@ export type ExcalidrawTextElement = _ExcalidrawElementBase & Readonly<{
     lineHeight: number & {
         _brand: "unitlessLineHeight";
     };
+    /**
+     * Position of text bound to a linear element (such as an arrow),
+     * expressed as a normalized arc-length parameter (0–1) along the
+     * container's whole path. Independent of how the path is segmented,
+     * so it survives midpoint insertion and other geometry changes.
+     * */
+    labelPosition?: number | null;
 }>;
 export type ExcalidrawBindableElement = ExcalidrawRectangleElement | ExcalidrawDiamondElement | ExcalidrawEllipseElement | ExcalidrawTextElement | ExcalidrawImageElement | ExcalidrawIframeElement | ExcalidrawEmbeddableElement | ExcalidrawFrameElement | ExcalidrawMagicFrameElement;
 export type ExcalidrawTextContainer = ExcalidrawRectangleElement | ExcalidrawDiamondElement | ExcalidrawEllipseElement | ExcalidrawArrowElement;
@@ -2779,10 +3413,1001 @@ export type SceneElementsMap = Map<ExcalidrawElement["id"], Ordered<ExcalidrawEl
  */
 export type NonDeletedSceneElementsMap = Map<ExcalidrawElement["id"], Ordered<NonDeletedExcalidrawElement>> & MakeBrand<"NonDeletedSceneElementsMap">;
 export type ElementsMapOrArray = readonly ExcalidrawElement[] | Readonly<ElementsMap>;
+export type NonDeletedElementsMapOrArray = readonly NonDeletedExcalidrawElement[] | Readonly<NonDeletedElementsMap | NonDeletedSceneElementsMap>;
 export type ExcalidrawLinearElementSubType = "line" | "sharpArrow" | "curvedArrow" | "elbowArrow";
 export type ConvertibleGenericTypes = "rectangle" | "diamond" | "ellipse";
 export type ConvertibleLinearTypes = ExcalidrawLinearElementSubType;
 export type ConvertibleTypes = ConvertibleGenericTypes | ConvertibleLinearTypes;
+
+/* ************************************** */
+/* node_modules/@zsviczian/excalidraw/types/excalidraw/components/App.d.ts */
+/* ************************************** */
+declare const editorLifecycleEventBehavior: {
+    readonly "editor:mount": {
+        readonly cardinality: "once";
+        readonly replay: "last";
+    };
+    readonly "editor:initialize": {
+        readonly cardinality: "once";
+        readonly replay: "last";
+    };
+    readonly "editor:unmount": {
+        readonly cardinality: "once";
+        readonly replay: "last";
+    };
+};
+export declare const ExcalidrawContainerContext: React.Context<{
+    container: HTMLDivElement | null;
+    id: string | null;
+}>;
+export declare const ExcalidrawAPIContext: React.Context<ExcalidrawImperativeAPI | null>;
+export declare const ExcalidrawAPISetContext: React.Context<((api: ExcalidrawImperativeAPI | null) => void) | null>;
+export declare const useApp: () => AppClassProperties;
+export declare const useAppProps: () => AppProps;
+export declare const useEditorInterface: () => Readonly<{
+    formFactor: "phone" | "tablet" | "desktop";
+    desktopUIMode: StylesPanelMode;
+    userAgent: Readonly<{
+        isMobileDevice: boolean;
+        platform: "ios" | "android" | "other" | "unknown";
+    }>;
+    isTouchScreen: boolean;
+    canFitSidebar: boolean;
+    isLandscape: boolean;
+}>;
+export declare const useStylesPanelMode: () => StylesPanelMode;
+export declare const useExcalidrawContainer: () => {
+    container: HTMLDivElement | null;
+    id: string | null;
+};
+export declare const useExcalidrawElements: () => readonly NonDeletedExcalidrawElement[];
+export declare const useExcalidrawAppState: () => AppState;
+export declare const useExcalidrawSetAppState: () => <K extends keyof AppState>(state: AppState | ((prevState: Readonly<AppState>, props: Readonly<any>) => AppState | Pick<AppState, K> | null) | Pick<AppState, K> | null, callback?: (() => void) | undefined) => void;
+export declare const useExcalidrawActionManager: () => ActionManager;
+/**
+ * Requires wrapping your component in <ExcalidrawAPIContext.Provider>
+ */
+export declare const useExcalidrawAPI: () => ExcalidrawImperativeAPI | null;
+declare class App extends React.Component<AppProps, AppState> {
+    canvas: AppClassProperties["canvas"];
+    interactiveCanvas: AppClassProperties["interactiveCanvas"];
+    sessionExportThemeOverride: AppState["theme"] | undefined;
+    rc: RoughCanvas;
+    unmounted: boolean;
+    actionManager: ActionManager;
+    editorInterface: EditorInterface;
+    private stylesPanelMode;
+    private excalidrawContainerRef;
+    get ownerDocument(): Document;
+    get ownerWindow(): Window & typeof globalThis;
+    scene: Scene;
+    fonts: Fonts;
+    renderer: Renderer;
+    visibleElements: readonly NonDeletedExcalidrawElement[];
+    /** whether the last render had any renderable elements (excludes e.g. the
+     * in-progress `newElement` and the edited text element) */
+    private hasRenderableElements;
+    private resizeObserver;
+    library: AppClassProperties["library"];
+    libraryItemsFromStorage: LibraryItems | undefined;
+    id: string;
+    private store;
+    private history;
+    private shouldRenderAllEmbeddables;
+    excalidrawContainerValue: {
+        container: HTMLDivElement | null;
+        id: string;
+    };
+    files: BinaryFiles;
+    imageCache: AppClassProperties["imageCache"];
+    private iFrameRefs;
+    /**
+     * Indicates whether the embeddable's url has been validated for rendering.
+     * If value not set, indicates that the validation is pending.
+     * Initially or on url change the flag is not reset so that we can guarantee
+     * the validation came from a trusted source (the editor).
+     **/
+    private embedsValidationStatus;
+    /** embeds that have been inserted to DOM (as a perf optim, we don't want to
+     * insert to DOM before user initially scrolls to them) */
+    private initializedEmbeds;
+    private elementsPendingErasure;
+    private _initialized;
+    private readonly editorLifecycleEvents;
+    onEvent: AppEventBus<ExcalidrawImperativeAPIEventMap, typeof editorLifecycleEventBehavior>["on"];
+    private appStateObserver;
+    onStateChange: OnStateChange;
+    bucketFill: AppBucketFill;
+    flowchart: AppFlowchart;
+    cursor: AppCursor;
+    arrowText: AppArrowText;
+    viewport: AppViewport;
+    bindModeHandler: ReturnType<typeof setTimeout> | null;
+    private textWysiwygSubmitHandler;
+    hitLinkElement?: NonDeletedExcalidrawElement;
+    lastPointerDownEvent: React.PointerEvent<HTMLElement> | null;
+    lastPointerUpEvent: React.PointerEvent<HTMLElement> | PointerEvent | null;
+    lastPointerUpIsDoubleClick: boolean;
+    lastPointerMoveEvent: PointerEvent | null;
+    /** current frame pointer cords */
+    lastPointerMoveCoords: {
+        x: number;
+        y: number;
+    } | null;
+    private lastCompletedCanvasClicks;
+    /** previous frame pointer coords */
+    previousPointerMoveCoords: {
+        x: number;
+        y: number;
+    } | null;
+    allowMobileMode: boolean;
+    drawShape: AppDrawShape;
+    laserTrails: LaserTrails;
+    eraserTrail: EraserTrail;
+    lassoTrail: LassoTrail;
+    cursorHints: CursorHints;
+    onChangeEmitter: Emitter<[elements: readonly ExcalidrawElement[], appState: AppState, files: BinaryFiles]>;
+    onPointerDownEmitter: Emitter<[activeTool: {
+        lastActiveTool: import("../types").ActiveTool | null;
+        locked: boolean;
+        fromSelection: boolean;
+    } & import("../types").ActiveTool, pointerDownState: Readonly<{
+        origin: Readonly<{
+            x: number;
+            y: number;
+        }>;
+        originInGrid: Readonly<{
+            x: number;
+            y: number;
+        }>;
+        scrollbars: ReturnType<typeof isOverScrollBars>;
+        lastCoords: {
+            x: number;
+            y: number;
+        };
+        originalElements: Map<string, NonDeleted<ExcalidrawElement>>;
+        resize: {
+            handleType: import("@excalidraw/element").MaybeTransformHandleType;
+            isResizing: boolean;
+            offset: {
+                x: number;
+                y: number;
+            };
+            arrowDirection: "origin" | "end";
+            center: {
+                x: number;
+                y: number;
+            };
+        };
+        hit: {
+            element: NonDeleted<ExcalidrawElement> | null;
+            allHitElements: NonDeleted<ExcalidrawElement>[];
+            wasAddedToSelection: boolean;
+            hasBeenDuplicated: boolean;
+            hasHitCommonBoundingBoxOfSelectedElements: boolean;
+            arrowLabel: boolean;
+        };
+        withCmdOrCtrl: boolean;
+        drag: {
+            hasOccurred: boolean;
+            offset: {
+                x: number;
+                y: number;
+            } | null;
+            origin: {
+                x: number;
+                y: number;
+            };
+            blockDragging: boolean;
+        };
+        eventListeners: {
+            onMove: null | ReturnType<typeof import("@excalidraw/common").throttleRAF>;
+            onUp: null | ((event: PointerEvent) => void);
+            onKeyDown: null | ((event: KeyboardEvent) => void);
+            onKeyUp: null | ((event: KeyboardEvent) => void);
+        };
+        boxSelection: {
+            hasOccurred: boolean;
+        };
+    }>, event: React.PointerEvent<HTMLElement>]>;
+    onPointerUpEmitter: Emitter<[activeTool: {
+        lastActiveTool: import("../types").ActiveTool | null;
+        locked: boolean;
+        fromSelection: boolean;
+    } & import("../types").ActiveTool, pointerDownState: Readonly<{
+        origin: Readonly<{
+            x: number;
+            y: number;
+        }>;
+        originInGrid: Readonly<{
+            x: number;
+            y: number;
+        }>;
+        scrollbars: ReturnType<typeof isOverScrollBars>;
+        lastCoords: {
+            x: number;
+            y: number;
+        };
+        originalElements: Map<string, NonDeleted<ExcalidrawElement>>;
+        resize: {
+            handleType: import("@excalidraw/element").MaybeTransformHandleType;
+            isResizing: boolean;
+            offset: {
+                x: number;
+                y: number;
+            };
+            arrowDirection: "origin" | "end";
+            center: {
+                x: number;
+                y: number;
+            };
+        };
+        hit: {
+            element: NonDeleted<ExcalidrawElement> | null;
+            allHitElements: NonDeleted<ExcalidrawElement>[];
+            wasAddedToSelection: boolean;
+            hasBeenDuplicated: boolean;
+            hasHitCommonBoundingBoxOfSelectedElements: boolean;
+            arrowLabel: boolean;
+        };
+        withCmdOrCtrl: boolean;
+        drag: {
+            hasOccurred: boolean;
+            offset: {
+                x: number;
+                y: number;
+            } | null;
+            origin: {
+                x: number;
+                y: number;
+            };
+            blockDragging: boolean;
+        };
+        eventListeners: {
+            onMove: null | ReturnType<typeof import("@excalidraw/common").throttleRAF>;
+            onUp: null | ((event: PointerEvent) => void);
+            onKeyDown: null | ((event: KeyboardEvent) => void);
+            onKeyUp: null | ((event: KeyboardEvent) => void);
+        };
+        boxSelection: {
+            hasOccurred: boolean;
+        };
+    }>, event: PointerEvent]>;
+    onUserFollowEmitter: Emitter<[payload: OnUserFollowedPayload]>;
+    onScrollChangeEmitter: Emitter<[scrollX: number, scrollY: number, zoom: Readonly<{
+        value: import("../types").NormalizedZoomValue;
+    }>]>;
+    missingPointerEventCleanupEmitter: Emitter<[event: PointerEvent | null]>;
+    onRemoveEventListenersEmitter: Emitter<[]>;
+    api: ExcalidrawImperativeAPI;
+    private createExcalidrawAPI;
+    constructor(props: AppProps);
+    /**
+     * Whether the editor accepts user input (pointer, keyboard, wheel, touch,
+     * clipboard, drag&drop). When `false`, the editor is fully inert for the
+     * user, but remains controllable through the imperative API.
+     *
+     * All user-input entry points must consult this getter (directly or by
+     * not being attached/rendered at all).
+     */
+    isInteractionEnabled(props?: Pick<AppProps, "interaction">): boolean;
+    /**
+     * Whether element links render their link icon and are clickable.
+     * True when fully interactive, or when `interaction: { enabled: { links:
+     * true } }`
+     * (in which case clicking anywhere on a linked element opens the link,
+     * same as in view mode).
+     */
+    isLinksEnabled(props?: Pick<AppProps, "interaction">): boolean;
+    /**
+     * Whether canvas navigation — panning & zooming, view-mode style — is
+     * enabled. True when fully interactive, or when `interaction: { enabled:
+     * { navigation: true } }`. Respects `appState.scrollConstraints`.
+     */
+    isNavigationEnabled(props?: Pick<AppProps, "interaction">): boolean;
+    /**
+     * Whether embeddable & iframe elements are interactive (hover & click to
+     * activate, view-mode style). True when fully interactive, or when
+     * allowed via `interaction.enabled.embeds` / `.interactiveContent`.
+     */
+    isEmbedsEnabled(props?: Pick<AppProps, "interaction">): boolean;
+    /**
+     * Whether the browser's own zoom (ctrl/cmd + wheel, pinch, keyboard
+     * shortcuts) stays available over the non-interactive editor.
+     * Prevented by default.
+     */
+    isBrowserZoomEnabled(props?: Pick<AppProps, "interaction">): boolean;
+    /**
+     * Whether the tool can be activated & driven by user input. False when
+     * disabled via `UIOptions.tools`, or when the editor is non-interactive
+     * and the tool isn't kept user-driven via `interaction.enabled.tools`.
+     *
+     * (Once UI tool availability is split from input availability — e.g.
+     * `props.ui.tools` vs `interaction.disabled.tools` — the UI axis moves
+     * out into its own predicate.)
+     *
+     * We purposely widen the `tool` type so this helper can be called with
+     * any tool without having to type check it.
+     */
+    isToolSupported: <T extends ToolType | "custom">(tool: T, props?: Pick<AppProps, "interaction" | "UIOptions">) => boolean;
+    /**
+     * Whether the active tool is locked in place — via the tool lock
+     * (padlock / Q) or by being host-forced (`props.activeTool`). A locked
+     * tool doesn't revert to the selection tool after use, and elements drawn
+     * with it aren't selected. Forcing deliberately does not mutate
+     * `activeTool.locked`, which is the user's persisted padlock preference.
+     */
+    isToolLocked(): boolean;
+    /**
+     * Whether the active tool captures the primary pointer instead of the
+     * view-mode drag-to-pan — the laser and host-implemented custom tools do;
+     * while non-interactive, any tool allowed via
+     * `interaction.enabled.tools` does. (Editing tools capture the pointer
+     * trivially since view mode implies they're not active; this predicate only
+     * matters where view-mode gates apply.)
+     */
+    isActiveToolPointerCapturing(): boolean;
+    /** Whether Excalidraw's full default UI is rendered. */
+    isDefaultUIEnabled(props?: Pick<AppProps, "ui">): boolean;
+    /** Whether an individual default UI control is rendered. */
+    isUIControlEnabled(control: keyof UIConfig["enabled"], props?: Pick<AppProps, "ui">): boolean;
+    updateEditorAtom: <Value, Args extends unknown[], Result>(atom: WritableAtom<Value, Args, Result>, ...args: Args) => Result;
+    private onWindowMessage;
+    private handleSkipBindMode;
+    private resetDelayedBindMode;
+    private previousHoveredBindableElement;
+    private handleDelayedBindModeChange;
+    private cacheEmbeddableRef;
+    /**
+     * Returns gridSize taking into account `gridModeEnabled`.
+     * If disabled, returns null.
+     */
+    getEffectiveGridSize: () => NullableGridSize;
+    private getTextCreationGridPoint;
+    private getHTMLIFrameElement;
+    /**
+     * AI-generated iframe elements aren't interactive while their generation
+     * is still in progress (the partial content is render-only).
+     */
+    private isIframeLikeInteractive;
+    private handleIframeLikeElementHover;
+    /** @returns true if iframe-like element click handled */
+    private handleIframeLikeCenterClick;
+    private isDoubleClick;
+    private isIframeLikeElementCenter;
+    private updateEmbedValidationStatus;
+    private updateEmbeddables;
+    private renderEmbeddables;
+    private getFrameNameDOMId;
+    frameNameBoundsCache: FrameNameBoundsCache;
+    private resetEditingFrame;
+    private renderFrameNames;
+    private toggleOverscrollBehavior;
+    render(): import("react/jsx-runtime").JSX.Element;
+    focusContainer: AppClassProperties["focusContainer"];
+    getSceneElementsIncludingDeleted: () => readonly import("@excalidraw/element/types").OrderedExcalidrawElement[];
+    getSceneElementsMapIncludingDeleted: () => SceneElementsMap;
+    getSceneElements: () => readonly Ordered<NonDeletedExcalidrawElement>[];
+    onInsertElements: (elements: readonly ExcalidrawElement[]) => void;
+    onExportImage: (type: keyof typeof EXPORT_IMAGE_TYPES, elements: ExportedElements, opts: {
+        exportingFrame: NonDeleted<ExcalidrawFrameLikeElement> | null;
+    }) => Promise<void>;
+    private magicGenerations;
+    private updateMagicGeneration;
+    plugins: {
+        diagramToCode?: {
+            generate: GenerateDiagramToCode;
+        };
+    };
+    setPlugins(plugins: Partial<App["plugins"]>): void;
+    private onMagicFrameGenerate;
+    private onIframeSrcCopy;
+    onMagicframeToolSelect: () => void;
+    private openEyeDropper;
+    dismissLinearEditor: () => void;
+    syncActionResult: (actionResult: ActionResult) => void;
+    scheduleCapture: () => void;
+    private onBlur;
+    private onUnload;
+    private disableEvent;
+    private preventBrowserZoomWheel;
+    private handleNavigationModeKeyDown;
+    /**
+     * PageUp/PageDown scroll the canvas by a page — vertically, or
+     * horizontally with shift. Respects `appState.scrollConstraints`
+     * (via `viewport.translate`).
+     */
+    private maybeHandlePageScrollKeyDown;
+    private preventBrowserZoomKeyDown;
+    /** Ends active input sessions before switching to a view-mode/non-interactive
+     *  mode. */
+    private terminateActiveInteraction;
+    private handleInteractionStateChange;
+    /** whether the two values reference the same tool (incl. custom subtype) */
+    private isSameForcedTool;
+    /**
+     * Keeps `state.activeTool` synced to the host-controlled
+     * `props.activeTool`. `setActiveTool` refuses non-matching activations
+     * while forced (user input, API); this backstop covers the writers that
+     * bypass the funnel (`actionFinalize`/`actionDeselect`, `restore()` on
+     * scene load, ...) and re-applies the tool once it becomes activatable
+     * (e.g. `interaction` config changes).
+     */
+    private handleForcedToolChange;
+    private resetHistory;
+    private undo;
+    private redo;
+    private resetStore;
+    /**
+     * Resets scene & history.
+     * ! Do not use to clear scene user action !
+     */
+    private resetScene;
+    private initializeScene;
+    private getFormFactor;
+    refreshEditorInterface: () => void;
+    private reconcileStylesPanelMode;
+    /** TO BE USED LATER */
+    private setDesktopUIMode;
+    private isTouchScreen;
+    isTrayModeEnabled: () => boolean;
+    private clearImageShapeCache;
+    componentDidMount(): Promise<void>;
+    componentWillUnmount(): void;
+    private onResize;
+    /** generally invoked only if fullscreen was invoked programmatically */
+    private onFullscreenChange;
+    private removeEventListeners;
+    private addEventListeners;
+    componentDidUpdate(prevProps: AppProps, prevState: AppState): void;
+    private renderInteractiveSceneCallback;
+    private onScroll;
+    private onCut;
+    private onCopy;
+    private static resetTapTwice;
+    private onTouchStart;
+    private onTouchEnd;
+    private insertClipboardContent;
+    pasteFromClipboard: (event: ClipboardEvent) => Promise<void>;
+    addElementsFromPasteOrLibrary: (opts: {
+        elements: readonly ExcalidrawElement[];
+        files: BinaryFiles | null;
+        position: {
+            clientX: number;
+            clientY: number;
+        } | "cursor" | "center";
+        retainSeed?: boolean;
+        fit?: SetViewportOptions["fit"];
+        preserveFrameChildrenOrder?: boolean;
+    }) => void;
+    private addElementsFromMixedContentPaste;
+    private addTextFromPaste;
+    setAppState: React.Component<any, AppState>["setState"];
+    removePointer: (event: React.PointerEvent<HTMLElement> | PointerEvent) => void;
+    toggleLock: (source?: "keyboard" | "ui") => void;
+    updateFrameRendering: (opts: Partial<AppState["frameRendering"]> | ((prevState: AppState["frameRendering"]) => Partial<AppState["frameRendering"]>)) => void;
+    togglePenMode: (force: boolean | null) => void;
+    revealIfHidden: (elements: NonDeletedExcalidrawElement[]) => void;
+    /** emits a follow/unfollow intent to the host (which owns the
+     *  `userToFollow` state) via both the `onUserFollow` prop and the
+     *  imperative API emitter */
+    emitUserFollowIntent: (payload: OnUserFollowedPayload) => void;
+    /** emits an UNFOLLOW intent if currently following someone — use on
+     *  user-initiated viewport changes which should break follow mode */
+    requestUnfollow: () => void;
+    setForceRenderAllEmbeddables: (force: boolean) => void;
+    zoomToFit: (target?: readonly ExcalidrawElement[], maxZoom?: number, //null will zoom to max based on viewport
+    margin?: number) => void;
+    getColorAtScenePoint: ({ sceneX, sceneY, }: {
+        sceneX: number;
+        sceneY: number;
+    }) => string | null;
+    startLineEditor: (el: ExcalidrawLinearElement, selectedPointsIndices?: number[] | null) => void;
+    refreshAllArrows: () => void;
+    updateContainerSize: (containers: NonDeletedExcalidrawElement[]) => void;
+    setToast: (toast: AppState["toast"]) => void;
+    restoreFileFromShare: () => Promise<void>;
+    /**
+     * adds supplied files to existing files in the appState.
+     * NOTE if file already exists in editor state, the file data is not updated
+     * */
+    addFiles: ExcalidrawImperativeAPI["addFiles"];
+    /**
+     * Waits for image-cache work already started by `addFiles()` for the given
+     * file IDs. Obsidian recreates the editor across popout documents and uses
+     * this completion boundary to publish transferred `BinaryFiles` in bounded
+     * batches while retaining the component's ordinary decoding path.
+     *
+     * Author: zsviczian
+     * Reference: obsidian-excalidraw-plugin performance refactor Phase 1C.2c.
+     */
+    awaitImageFiles: (fileIds: readonly FileId[]) => Promise<void>;
+    setMobileModeAllowed: (allow: boolean) => void;
+    private debounceClearHighlightSearchResults;
+    selectElements: ExcalidrawImperativeAPI["selectElements"];
+    bringToFront: ExcalidrawImperativeAPI["bringToFront"];
+    bringForward: ExcalidrawImperativeAPI["bringForward"];
+    sendToBack: ExcalidrawImperativeAPI["sendToBack"];
+    sendBackward: ExcalidrawImperativeAPI["sendBackward"];
+    private addMissingFiles;
+    updateScene: <K extends keyof AppState>(sceneData: {
+        elements?: SceneData["elements"];
+        appState?: Pick<AppState, K> | null;
+        collaborators?: SceneData["collaborators"];
+        /**
+         *  Controls which updates should be captured by the `Store`. Captured updates are emmitted and listened to by other components, such as `History` for undo / redo purposes.
+         *
+         *  - `CaptureUpdateAction.IMMEDIATELY`: Updates are immediately undoable. Use for most local updates.
+         *  - `CaptureUpdateAction.NEVER`: Updates never make it to undo/redo stack. Use for remote updates or scene initialization.
+         *  - `CaptureUpdateAction.EVENTUALLY`: Updates will be eventually be captured as part of a future increment.
+         *
+         * Check [API docs](https://docs.excalidraw.com/docs/@excalidraw/excalidraw/api/props/excalidraw-api#captureUpdate) for more details.
+         *
+         * @default CaptureUpdateAction.EVENTUALLY
+         */
+        captureUpdate?: SceneData["captureUpdate"];
+        forceFlushSync?: boolean;
+    }) => void;
+    applyDeltas: (deltas: StoreDelta[], options?: ApplyToOptions) => [SceneElementsMap, AppState, boolean];
+    mutateElement: <TElement extends Mutable<ExcalidrawElement>>(element: TElement, updates: ElementUpdate<TElement>, informMutation?: boolean) => TElement;
+    triggerRender: (
+    /** force always re-renders canvas even if no change */
+    force?: boolean) => void;
+    /**
+     * @returns whether the menu was toggled on or off
+     */
+    toggleSidebar: ({ name, tab, force, }: {
+        name: SidebarName | null;
+        tab?: SidebarTabName;
+        force?: boolean;
+    }) => boolean;
+    private updateCurrentCursorPosition;
+    private onKeyDown;
+    private onKeyUp;
+    setActiveTool: (tool: ({
+        type: ToolType;
+    } | {
+        type: "custom";
+        customType: string;
+    }) & {
+        locked?: boolean;
+        fromSelection?: boolean;
+    }, opts?: {
+        keepSelection?: boolean;
+        /**
+         * When `true`, re-activating an already-active toggle tool (see
+         * `TOGGLE_TOOLS`) switches back to the previously active tool.
+         * Activation is idempotent by default; toggle tools always record the
+         * previously active tool regardless (so ESC and the next `toggle`
+         * activation can switch back to it).
+         */
+        toggle?: boolean;
+    }) => void;
+    setOpenDialog: (dialogType: AppState["openDialog"]) => void;
+    /**
+     * returns whether user is making a gesture with >= 2 fingers (points)
+     * on o touch screen (not on a trackpad). Currently only relates to Darwin
+     * (iOS/iPadOS,MacOS), but may work on other devices in the future if
+     * GestureEvent is standardized.
+     */
+    private isTouchScreenMultiTouchGesture;
+    getName: () => string;
+    private onGestureStart;
+    private onGestureChange;
+    private onGestureEnd;
+    private handleTextWysiwyg;
+    private deselectElements;
+    private getSelectedTextElement;
+    private getSelectedTextEditingContainerAtPosition;
+    getTextElementAtPosition(x: number, y: number): NonDeleted<ExcalidrawTextElement> | null;
+    private isHittingTextAutoResizeHandle;
+    private handleTextAutoResizeHandlePointerDown;
+    getElementAtPosition(x: number, y: number, opts?: ({
+        includeBoundTextElement?: boolean;
+        includeLockedElements?: boolean;
+    } | {
+        allHitElements: NonDeleted<ExcalidrawElement>[];
+    }) & {
+        preferSelected?: boolean;
+    }): NonDeleted<ExcalidrawElement> | null;
+    getElementsAtPosition(x: number, y: number, opts?: {
+        includeBoundTextElement?: boolean;
+        includeLockedElements?: boolean;
+    }): NonDeleted<ExcalidrawElement>[];
+    getElementHitThreshold(element: ExcalidrawElement): number;
+    hitElement(x: number, y: number, element: NonDeletedExcalidrawElement, considerBoundingBox?: boolean): boolean;
+    getTextBindableContainerAtPosition(x: number, y: number): (Readonly<{
+        id: string;
+        x: number;
+        y: number;
+        strokeColor: string;
+        backgroundColor: string;
+        fillStyle: import("@excalidraw/element/types").FillStyle;
+        strokeWidth: number;
+        strokeStyle: import("@excalidraw/element/types").StrokeStyle;
+        roundness: null | {
+            type: import("@excalidraw/element/types").RoundnessType;
+            value?: number;
+        };
+        roughness: number;
+        opacity: number;
+        width: number;
+        height: number;
+        angle: Radians;
+        seed: number;
+        version: number;
+        versionNonce: number;
+        index: import("@excalidraw/element/types").FractionalIndex | null;
+        isDeleted: boolean;
+        groupIds: readonly import("@excalidraw/element/types").GroupId[];
+        frameId: string | null;
+        boundElements: readonly import("@excalidraw/element/types").BoundElement[] | null;
+        updated: number;
+        link: string | null;
+        hasTextLink?: boolean;
+        locked: boolean;
+        customData?: Record<string, any>;
+    }> & {
+        type: "rectangle";
+    } & {
+        isDeleted: false;
+    }) | (Readonly<{
+        id: string;
+        x: number;
+        y: number;
+        strokeColor: string;
+        backgroundColor: string;
+        fillStyle: import("@excalidraw/element/types").FillStyle;
+        strokeWidth: number;
+        strokeStyle: import("@excalidraw/element/types").StrokeStyle;
+        roundness: null | {
+            type: import("@excalidraw/element/types").RoundnessType;
+            value?: number;
+        };
+        roughness: number;
+        opacity: number;
+        width: number;
+        height: number;
+        angle: Radians;
+        seed: number;
+        version: number;
+        versionNonce: number;
+        index: import("@excalidraw/element/types").FractionalIndex | null;
+        isDeleted: boolean;
+        groupIds: readonly import("@excalidraw/element/types").GroupId[];
+        frameId: string | null;
+        boundElements: readonly import("@excalidraw/element/types").BoundElement[] | null;
+        updated: number;
+        link: string | null;
+        hasTextLink?: boolean;
+        locked: boolean;
+        customData?: Record<string, any>;
+    }> & {
+        type: "diamond";
+    } & {
+        isDeleted: false;
+    }) | (Readonly<{
+        id: string;
+        x: number;
+        y: number;
+        strokeColor: string;
+        backgroundColor: string;
+        fillStyle: import("@excalidraw/element/types").FillStyle;
+        strokeWidth: number;
+        strokeStyle: import("@excalidraw/element/types").StrokeStyle;
+        roundness: null | {
+            type: import("@excalidraw/element/types").RoundnessType;
+            value?: number;
+        };
+        roughness: number;
+        opacity: number;
+        width: number;
+        height: number;
+        angle: Radians;
+        seed: number;
+        version: number;
+        versionNonce: number;
+        index: import("@excalidraw/element/types").FractionalIndex | null;
+        isDeleted: boolean;
+        groupIds: readonly import("@excalidraw/element/types").GroupId[];
+        frameId: string | null;
+        boundElements: readonly import("@excalidraw/element/types").BoundElement[] | null;
+        updated: number;
+        link: string | null;
+        hasTextLink?: boolean;
+        locked: boolean;
+        customData?: Record<string, any>;
+    }> & {
+        type: "ellipse";
+    } & {
+        isDeleted: false;
+    }) | (Readonly<{
+        id: string;
+        x: number;
+        y: number;
+        strokeColor: string;
+        backgroundColor: string;
+        fillStyle: import("@excalidraw/element/types").FillStyle;
+        strokeWidth: number;
+        strokeStyle: import("@excalidraw/element/types").StrokeStyle;
+        roundness: null | {
+            type: import("@excalidraw/element/types").RoundnessType;
+            value?: number;
+        };
+        roughness: number;
+        opacity: number;
+        width: number;
+        height: number;
+        angle: Radians;
+        seed: number;
+        version: number;
+        versionNonce: number;
+        index: import("@excalidraw/element/types").FractionalIndex | null;
+        isDeleted: boolean;
+        groupIds: readonly import("@excalidraw/element/types").GroupId[];
+        frameId: string | null;
+        boundElements: readonly import("@excalidraw/element/types").BoundElement[] | null;
+        updated: number;
+        link: string | null;
+        hasTextLink?: boolean;
+        locked: boolean;
+        customData?: Record<string, any>;
+    }> & Readonly<{
+        type: "line" | "arrow";
+        points: readonly LocalPoint[];
+        startBinding: import("@excalidraw/element/types").FixedPointBinding | null;
+        endBinding: import("@excalidraw/element/types").FixedPointBinding | null;
+        startArrowhead: import("@excalidraw/element/types").Arrowhead | null;
+        endArrowhead: import("@excalidraw/element/types").Arrowhead | null;
+    }> & Readonly<{
+        type: "arrow";
+        elbowed: boolean;
+    }> & {
+        isDeleted: false;
+    }) | null;
+    /**
+     * Whether a text element's content is still being authored.
+     *
+     * Creating a text reverts the tool to selection during pointerdown, so the
+     * pointerup that follows looks like an ordinary canvas click and would
+     * capture the still-empty element as a history entry of its own. Undo would
+     * then rewind only the typing, restoring an invisible, zero-content element
+     * (and, for an endpoint label, leaving the arrow bound to it) rather than
+     * removing it. The editor's own submit captures the finished text instead,
+     * so the whole create-and-type lands in a single entry.
+     */
+    private isEditingTextContent;
+    private startTextEditing;
+    private debounceDoubleClickTimestamp;
+    private startImageCropping;
+    private finishImageCropping;
+    private shouldHandleBrowserCanvasDoubleClick;
+    private handleCanvasDoubleClick;
+    private handleCanvasClick;
+    private getElementLinkAtPosition;
+    private handleElementLinkClick;
+    /**
+     * Applies (or clears) the element-link hover affordances — pointer cursor
+     * and tooltip — based on the current `hitLinkElement`. Returns whether a
+     * link is being hovered.
+     */
+    private applyElementLinkHoverAffordance;
+    /**
+     * On touchscreens (where no hover precedes the tap) re-derives
+     * `hitLinkElement`, then opens the hit element link, if any.
+     * Returns whether a link click was handled.
+     */
+    private maybeHandleElementLinkClick;
+    /**
+     * Restricted pointer handling for the non-interactive editor with links
+     * and/or embeds allowed (`interaction.enabled.links` / `.embeds` /
+     * `.interactiveContent`) — runs only the element-link & embed concerns
+     * (shared with the full pointer handlers above) so they behave like in
+     * view mode without the rest of the canvas pointer machinery.
+     */
+    private handleInteractiveContentPointerMove;
+    private handleInteractiveContentPointerUp;
+    /**
+     * finds candidate frame under cursor (when dragging frame children/elements
+     * inside frames)
+     */
+    getTopLayerFrameAtSceneCoords: (
+    /**
+     * should be already grid aligned (basically should be what the call site
+     * sets the element's coords to, if applicable)
+     */
+    sceneCoords: {
+        x: number;
+        y: number;
+    }, opts?: {
+        /** to exclude selected elements when dragging, etc. */
+        excludeElementIds?: AppState["selectedElementIds"];
+        currentFrameId?: ExcalidrawElement["frameId"];
+    }) => NonDeleted<ExcalidrawFrameLikeElement> | null;
+    private updateFrameToHighlight;
+    private maybeUpdateFrameToHighlightOnPointerMove;
+    insertNewElements: (elements: readonly ExcalidrawElement[], idx?: number) => void;
+    insertNewElement: (element: ExcalidrawElement, idx?: number) => void;
+    private handleCanvasPointerMove;
+    private handleEraser;
+    private handleTouchMove;
+    /**
+     * Applies the hover affordances of a selected linear element: the cursor,
+     * plus the hovered-handle state that renders them highlighted.
+     */
+    handleHoverSelectedLinearElement(linearElementEditor: LinearElementEditor, scenePointerX: number, scenePointerY: number): void;
+    private handleCanvasPointerDown;
+    private handleCanvasPointerUp;
+    private maybeOpenContextMenuAfterPointerDownOnTouchDevices;
+    private resetContextMenuTimer;
+    /**
+     * pointerup may not fire in certian cases (user tabs away...), so in order
+     * to properly cleanup pointerdown state, we need to fire any hanging
+     * pointerup handlers manually
+     */
+    private maybeCleanupAfterMissingPointerUp;
+    handleCanvasPanUsingWheelOrSpaceDrag: (event: React.PointerEvent<HTMLElement> | MouseEvent) => boolean;
+    private startRightClickPanning;
+    private updateGestureOnPointerDown;
+    /**
+     * Tracks the pointer within the ongoing multi-touch gesture and applies
+     * the two-finger pinch zoom/pan, if any.
+     */
+    private updateMultiTouchGesture;
+    private initialPointerDownState;
+    private handleDraggingScrollBar;
+    private clearSelectionIfNotUsingSelection;
+    /**
+     * @returns whether the pointer event has been completely handled
+     */
+    private handleSelectionOnPointerDown;
+    private isASelectedElement;
+    private isHittingCommonBoundingBoxOfSelectedElements;
+    private handleTextOnPointerDown;
+    private handleFreeDrawElementOnPointerDown;
+    insertIframeElement: ({ sceneX, sceneY, width, height, }: {
+        sceneX: number;
+        sceneY: number;
+        width: number;
+        height: number;
+    }) => NonDeleted<ExcalidrawIframeElement>;
+    insertEmbeddableElement: ({ sceneX, sceneY, link, }: {
+        sceneX: number;
+        sceneY: number;
+        link: string;
+    }) => NonDeleted<ExcalidrawEmbeddableElement> | undefined;
+    private newImagePlaceholder;
+    private handleLinearElementOnPointerDown;
+    private getCurrentItemRoundness;
+    private getCurrentItemStrokeWidth;
+    private createGenericElementOnPointerDown;
+    private createFrameElementOnPointerDown;
+    private maybeCacheReferenceSnapPoints;
+    private maybeCacheVisibleGaps;
+    private onKeyDownFromPointerDownHandler;
+    private onKeyUpFromPointerDownHandler;
+    private onPointerMoveFromPointerDownHandler;
+    private handlePointerMoveOverScrollbars;
+    private onPointerUpFromPointerDownHandler;
+    private restoreReadyToEraseElements;
+    private eraseElements;
+    private initializeImage;
+    /**
+     * use during async image initialization,
+     * when the placeholder image could have been modified in the meantime,
+     * and when you don't want to loose those modifications
+     */
+    private getLatestInitializedImageElement;
+    private onImageToolbarButtonClick;
+    private getImageNaturalDimensions;
+    /** updates image cache, refreshing updated elements and/or setting status
+        to error for images that fail during <img> element creation */
+    private updateImageCache;
+    /** adds new images to imageCache and re-renders if needed */
+    private addNewImagesToImageCache;
+    /** generally you should use `addNewImagesToImageCache()` directly if you need
+     *  to render new images. This is just a failsafe  */
+    private scheduleImageRefresh;
+    setSelection(elements: readonly NonDeletedExcalidrawElement[]): void;
+    private clearSelection;
+    private handleInteractiveCanvasRef;
+    private insertImages;
+    private handleAppOnDrop;
+    loadFileToCanvas: (file: File, fileHandle: FileSystemFileHandle | null) => Promise<void>;
+    private handleCanvasContextMenu;
+    private maybeDragNewGenericElement;
+    private maybeHandleCrop;
+    private maybeHandleResize;
+    private getContextMenuItems;
+    private handleWheel;
+    getTextWysiwygSnappedToCenterPosition(x: number, y: number, appState: AppState, container?: ExcalidrawTextContainer | null): {
+        viewportX: number;
+        viewportY: number;
+        elementCenterX: number;
+        elementCenterY: number;
+    } | undefined;
+    private savePointer;
+    private resetShouldCacheIgnoreZoomDebounced;
+    private updateDOMRect;
+    refresh: () => void;
+    private getCanvasOffsets;
+    watchState: () => void;
+    private updateLanguage;
+}
+export default App;
+
+/* ************************************** */
+/* node_modules/@zsviczian/excalidraw/types/excalidraw/obsidianTypes.d.ts */
+/* ************************************** */
+/**
+ * Purpose:
+ *   Type shapes for Obsidian-host-defined data stored opaquely on
+ *   `AppState` (`customPens`, `currentStrokeOptions`, `resetCustomPen`).
+ *   These are Obsidian Excalidraw plugin concepts, not general-purpose
+ *   Excalidraw ones, so they live in this ringfenced file rather than
+ *   `types.ts` -- kept next to the other Obsidian-only surfaces
+ *   (`obsidianUtils.ts`, `obsidianEntry.ts`).
+ *
+ * Author:
+ *   zsviczian
+ *
+ * References:
+ *   https://github.com/zsviczian/obsidian-excalidraw-plugin
+ *
+ * Notes:
+ *   The fork cannot depend on its own consumer plugin, so these are the
+ *   canonical definitions. The plugin's `src/types/penTypes.ts` and
+ *   `ObsidianMenu.tsx`'s `ResetCustomPenState` alias these types instead of
+ *   keeping independent copies, so the two repositories cannot drift apart.
+ *   Edit here, not there.
+ */
+export type ObsidianPenStrokeOptions = {
+    thinning: number;
+    smoothing: number;
+    streamline: number;
+    easing: string;
+    simulatePressure?: boolean;
+    start: {
+        cap: boolean;
+        taper: number | boolean;
+        easing: string;
+    };
+    end: {
+        cap: boolean;
+        taper: number | boolean;
+        easing: string;
+    };
+};
+export type ObsidianPenOptions = {
+    highlighter: boolean;
+    constantPressure: boolean;
+    hasOutline: boolean;
+    outlineWidth: number;
+    options: ObsidianPenStrokeOptions;
+};
+export type ObsidianExtendedFillStyle = "dots" | "zigzag" | "zigzag-line" | "dashed" | "hachure" | "cross-hatch" | "solid" | "";
+export type ObsidianPenType = "default" | "highlighter" | "finetip" | "fountain" | "marker" | "thick-thin" | "thin-thick-thin";
+export type ObsidianPenStyle = {
+    type: ObsidianPenType;
+    freedrawOnly: boolean;
+    strokeColor?: string;
+    backgroundColor?: string;
+    fillStyle: ObsidianExtendedFillStyle;
+    strokeWidth: number;
+    roughness: number;
+    penOptions: ObsidianPenOptions;
+};
+/** Snapshot of current-item stroke properties captured before a custom pen
+ * overrides them, restored when the pen is deselected. */
+export type ObsidianResetCustomPenState = {
+    currentItemStrokeWidthKey?: string | null;
+    currentItemStrokeWidth?: number | null;
+    currentItemStrokeVariability?: string | null;
+    currentItemBackgroundColor?: string | null;
+    currentItemStrokeColor?: string | null;
+    currentItemFillStyle?: string | null;
+    currentItemRoughness?: number | null;
+};
 
 /* ************************************** */
 /* node_modules/@zsviczian/excalidraw/types/excalidraw/types.d.ts */
@@ -2854,7 +4479,7 @@ export type BinaryFileData = {
 };
 export type BinaryFileMetadata = Omit<BinaryFileData, "dataURL">;
 export type BinaryFiles = Record<ExcalidrawElement["id"], BinaryFileData>;
-export type ToolType = "selection" | "lasso" | "rectangle" | "diamond" | "ellipse" | "arrow" | "line" | "freedraw" | "text" | "image" | "eraser" | "hand" | "frame" | "magicframe" | "embeddable" | "laser" | "mermaid";
+export type ToolType = "selection" | "lasso" | "rectangle" | "diamond" | "ellipse" | "arrow" | "line" | "freedraw" | "text" | "image" | "eraser" | "hand" | "frame" | "magicframe" | "embeddable" | "laser" | "mermaid" | "autoshape" | "bucketfill";
 export type ElementOrToolType = ExcalidrawElementType | ToolType | "custom";
 export type ActiveTool = {
     type: ToolType;
@@ -2912,7 +4537,9 @@ export type InteractiveCanvasAppState = Readonly<_CommonCanvasAppState & {
     newElement: AppState["newElement"];
     isBindingEnabled: AppState["isBindingEnabled"];
     isMidpointSnappingEnabled: AppState["isMidpointSnappingEnabled"];
+    gridModeEnabled: AppState["gridModeEnabled"];
     suggestedBinding: AppState["suggestedBinding"];
+    hoveredArrowTextAnchor: AppState["hoveredArrowTextAnchor"];
     isRotating: AppState["isRotating"];
     elementsToHighlight: AppState["elementsToHighlight"];
     collaborators: AppState["collaborators"];
@@ -2952,6 +4579,41 @@ export type ObservedElementsAppState = {
     activeLockedId: AppState["activeLockedId"];
 };
 export type BoxSelectionMode = "contain" | "overlap";
+/**
+ * A box, in scene coordinates, that pan & zoom are constrained to.
+ *
+ * This is a private type. For public API, only use specific properties,
+ * needed.
+ */
+export type ScrollConstraints = {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    /** when set, panning is constrained so the viewport stays within the box */
+    lockScroll: boolean;
+    /** when set, the viewport cannot zoom out below `zoom` */
+    lockZoom: boolean;
+    /**
+     * The zoom resolved after the `setViewport` navigation settled.
+     */
+    zoom: number;
+    /**
+     * Pixel amount the viewport may overscroll past its resting clamp before
+     * snapping back (rubberband). Screen pixels, zoom-independent. Resolved
+     * from `lock.overscroll` at the time the lock was installed (`true` →
+     * default give, `false` → 0).
+     */
+    overscroll: number;
+    /**
+     * Extra scrollable margin around the box (CSS-style), letting the viewport
+     * scroll past each box edge to reveal that much empty space. Values are
+     * viewport pixels and zoom-independent (a fixed on-screen distance).
+     * Resolved from the `offsets` passed to `setViewport` (see
+     * {@link ViewportOffsets}) at the time the lock was installed.
+     */
+    offsets?: Offsets;
+};
 export interface AppState {
     contextMenu: {
         items: ContextMenuItems;
@@ -3004,6 +4666,15 @@ export interface AppState {
         element: NonDeleted<ExcalidrawBindableElement>;
         midPoint?: GlobalPoint;
     } | null;
+    /**
+     * Where on a hovered arrow the text tool would attach text if clicked —
+     * a free endpoint (binds the arrow to a new text element positioned against
+     * that endpoint) or the arrow's midpoint (adds a label bound to the arrow).
+     */
+    hoveredArrowTextAnchor: {
+        elementId: ExcalidrawArrowElement["id"];
+        anchor: "start" | "end" | "label";
+    } | null;
     frameToHighlight: NonDeleted<ExcalidrawFrameLikeElement> | null;
     frameRendering: {
         enabled: boolean;
@@ -3013,8 +4684,11 @@ export interface AppState {
         markerName: boolean;
         markerEnabled: boolean;
     };
-    editingFrame: string | null;
-    elementsToHighlight: NonDeleted<ExcalidrawElement>[] | null;
+    /**
+     * frame-like element whose name is currently being edited
+     */
+    editingFrame: ExcalidrawFrameLikeElement["id"] | null;
+    elementsToHighlight: readonly NonDeletedExcalidrawElement[] | null;
     /**
      * set when a new text is created or when an existing text is being edited
      */
@@ -3059,6 +4733,7 @@ export interface AppState {
     viewBackgroundColor: string;
     scrollX: number;
     scrollY: number;
+    scrollConstraints: ScrollConstraints | null;
     cursorButton: "up" | "down";
     scrolledOutside: boolean;
     name: string | null;
@@ -3154,9 +4829,16 @@ export interface AppState {
     allowPinchZoom?: boolean;
     disableContextMenu: boolean;
     pinnedScripts?: string[];
-    customPens?: any[];
-    currentStrokeOptions?: any;
-    resetCustomPen?: any;
+    /** Obsidian host-defined custom pen presets (see actionCanvas.tsx's
+     * clear-canvas action, which passes this through untouched). */
+    customPens?: ObsidianPenStyle[];
+    /** Obsidian host-defined freedraw stroke-shaping options for the active
+     * custom pen; the editor itself only reads `constantPressure` (App.tsx)
+     * to gate simulated pressure. */
+    currentStrokeOptions?: ObsidianPenOptions | null;
+    /** Snapshot of current-item stroke properties captured before a custom
+     * pen overrides them, restored when the pen is deselected. */
+    resetCustomPen?: ObsidianResetCustomPenState | null;
     gridColor: {
         Bold: string;
         Regular: string;
@@ -3181,10 +4863,6 @@ export interface AppState {
         y: number;
     } | null;
     objectsSnapModeEnabled: boolean;
-    /** the user's socket id & username who is being followed on the canvas */
-    userToFollow: UserToFollow | null;
-    /** the socket ids of the users following the current user */
-    followedBy: Set<SocketId>;
     /** image cropping */
     isCropping: boolean;
     croppingElementId: ExcalidrawElement["id"] | null;
@@ -3199,6 +4877,17 @@ export interface AppState {
         [groupId: string]: true;
     };
     bindMode: BindMode;
+    /** user-customized color-picker top picks (pinned via drag & drop from the
+     * color picker popup). `null` means no customization (defaults, or
+     * host-supplied `topPicks`, are used). Kept per picker. */
+    colorTopPicks: {
+        elementStroke: readonly string[] | null;
+        elementBackground: readonly string[] | null;
+        /** the bucket-fill tool keeps a list separate from `elementBackground`
+         * even though both drive `currentItemBackgroundColor` (its defaults and
+         * use case differ — no transparent) */
+        bucketFill: readonly string[] | null;
+    };
 }
 export type SearchMatch = {
     id: string;
@@ -3211,7 +4900,7 @@ export type SearchMatch = {
         showOnCanvas: boolean;
     }[];
 };
-export type UIAppState = Omit<AppState, "cursorButton" | "scrollX" | "scrollY">;
+export type UIAppState = Omit<AppState, "cursorButton" | "scrollX" | "scrollY" | "shouldCacheIgnoreZoom" | "snapLines" | "originSnapOffset" | "suggestedBinding" | "hoveredArrowTextAnchor" | "frameToHighlight" | "elementsToHighlight">;
 export type NormalizedZoomValue = number & {
     _brand: "normalizedZoom";
 };
@@ -3255,9 +4944,29 @@ export type LibraryItemsSource = ((currentLibraryItems: LibraryItems) => MaybePr
 export type ExcalidrawInitialDataState = Merge<ImportedDataState, {
     libraryItems?: MaybePromise<Required<ImportedDataState>["libraryItems"]>;
 }>;
+export type ExcalidrawInitialState = {
+    viewport?: Omit<SetViewportOptions, "animation">;
+};
 export type OnUserFollowedPayload = {
     userToFollow: UserToFollow;
     action: "FOLLOW" | "UNFOLLOW";
+};
+export type ViewportStatusFrame = {
+    /** the badge (bottom-center pill) */
+    label?: {
+        label: React.ReactNode;
+        icon?: React.ReactNode;
+        /** badge background; defaults to var(--color-primary-hover) */
+        background?: string;
+        /** badge text color; defaults to var(--color-primary-light) */
+        color?: string;
+        /** makes the badge label interactive */
+        onClick?: () => void;
+        /** renders a close button when set */
+        onClose?: () => void;
+    };
+    /** viewport-edge border: CSS color, or `false` for none */
+    border: false | string;
 };
 export type OnExportProgress = {
     type: "progress";
@@ -3265,7 +4974,123 @@ export type OnExportProgress = {
     /** 0-1 range */
     progress?: number;
 };
+export type InteractionConfig = {
+    /**
+     * Interactions that stay enabled while the editor is otherwise
+     * non-interactive. Opt-in: anything omitted or `false` is disabled.
+     */
+    enabled?: {
+        /**
+         * Element links render their link icon and stay clickable — clicking
+         * anywhere on a linked element opens the link, same as in view mode.
+         * When disabled, link icons are not rendered at all.
+         *
+         * @default false
+         */
+        links?: boolean;
+        /**
+         * Embeddable & iframe elements stay interactive — hovering & clicking
+         * activates them so their content can be used, same as in view mode.
+         *
+         * @default false
+         */
+        embeds?: boolean;
+        /**
+         * Umbrella for all interactive content on canvas — shorthand for
+         * enabling `links` & `embeds` (and future interactive content kinds)
+         * together. Additive: `interactiveContent: true` enables them
+         * regardless of their individual values.
+         *
+         * @default false
+         */
+        interactiveContent?: boolean;
+        /**
+         * Canvas navigation — panning (pointer drag, wheel, PageUp/PageDown)
+         * and zooming (ctrl/cmd + wheel, pinch, and the canvas zoom &
+         * zoom-to-fit shortcuts: ctrl/cmd +/-/0, shift+1/2/3), same as in view
+         * mode. Respects `appState.scrollConstraints` if set, so it composes
+         * with viewport locking. The rest of the keyboard stays disabled. Note
+         * the editor consumes wheel & touch input again when enabled, so the
+         * page no longer scrolls over the editor.
+         *
+         * @default false
+         */
+        navigation?: boolean;
+        /**
+         * Whether the browser's own zoom remains available over the editor —
+         * ctrl/cmd + wheel, pinch, and (while the editor has focus)
+         * ctrl/cmd +/-/0 shortcuts. Prevented by default, mirroring the
+         * interactive editor. Regular page scrolling stays available either way.
+         * With `navigation` enabled, the zoom input (wheel, pinch, keyboard
+         * shortcuts) zooms the canvas instead either way, making this moot.
+         *
+         * @default false
+         */
+        browserZoom?: boolean;
+        /**
+         * Tools that stay user-driven while the editor is otherwise
+         * non-interactive: pointer input keeps driving the listed tool when it's
+         * the active tool. Does not enable user-driven tool *switching* — the
+         * keyboard stays disabled and tool selection remains host-driven
+         * (`ExcalidrawAPI.setActiveTool`).
+         *
+         * Composes with `navigation`: the enabled tool wins the primary-pointer
+         * drag, while wheel input (and wheel-button drag) still pans/zooms.
+         */
+        tools?: {
+            /**
+             * The laser pointer stays usable — pointer strokes draw laser trails
+             * and pointer positions keep broadcasting via `onPointerUpdate`, so
+             * e.g. collaborators see a presenter's laser & cursor.
+             *
+             * @default false
+             */
+            laser?: boolean;
+            /**
+             * Custom tools (`activeTool.type === "custom"`) stay usable — the
+             * editor keeps dispatching `onPointerDown` / `onPointerUp` for them.
+             * Tool behavior is host-implemented; activate custom tools with
+             * `locked: true` or they revert to the selection tool (and go inert)
+             * after the first pointer interaction.
+             *
+             * @default false
+             */
+            custom?: boolean;
+        };
+    };
+};
+export type UIConfig = {
+    /**
+     * Default UI controls that stay enabled while the rest of Excalidraw's
+     * default UI is hidden. Opt-in: anything omitted or `false` is disabled.
+     */
+    enabled: {
+        /**
+         * The zoom-out, reset-zoom, and zoom-in controls.
+         *
+         * @default false
+         */
+        zoom?: boolean;
+        /**
+         * The button shown when the viewport is scrolled away from all content.
+         *
+         * @default false
+         */
+        scrollBackToContent?: boolean;
+    };
+};
 export interface ExcalidrawProps {
+    className?: string;
+    /**
+     * Document that owns Excalidraw's mounted DOM.
+     *
+     * Set only when it differs from the global `document`, such as when code
+     * executing in a parent window mounts Excalidraw into an iframe document.
+     * The value must remain stable for the editor's lifetime.
+     *
+     * @default document
+     */
+    ownerDocument?: Document;
     onChange?: (elements: readonly OrderedExcalidrawElement[], appState: AppState, files: BinaryFiles) => void;
     onThemeChange?: (theme: Theme | "system") => void;
     /**
@@ -3273,6 +5098,7 @@ export interface ExcalidrawProps {
      */
     onIncrement?: (event: DurableIncrement | EphemeralIncrement) => void;
     initialData?: (() => MaybePromise<ExcalidrawInitialDataState | null>) | MaybePromise<ExcalidrawInitialDataState | null>;
+    initialState?: ExcalidrawInitialState;
     /**
      * Invoked as soon as the Excalidraw API is available
      * NOTE editor is not yet mounted, and state is not yet initialized
@@ -3320,6 +5146,70 @@ export interface ExcalidrawProps {
     renderTopRightUI?: (isMobile: boolean, appState: UIAppState) => JSX.Element | null;
     langCode?: Language["code"];
     viewModeEnabled?: boolean;
+    /**
+     * Whether the editor accepts user input (pointer, keyboard, wheel, touch,
+     * clipboard, drag&drop). When `false`, the scene still renders and reacts
+     * to programmatic updates (imperative API), but the user cannot affect it
+     * in any way. Implies view mode.
+     *
+     * Pass a config object to keep specific interactions enabled while the
+     * editor is otherwise non-interactive (see `InteractionConfig`):
+     *
+     * ```tsx
+     * <Excalidraw interaction={{ enabled: { links: true } }} />
+     * ```
+     *
+     * @default true
+     */
+    interaction?: boolean | InteractionConfig;
+    /**
+     * Whether Excalidraw's default UI is rendered — toolbar, default menus,
+     * footer controls, sidebars, and canvas popups. Host UI passed through
+     * children (including exported components such as `MainMenu` and `Footer`)
+     * or render props continues to render, together with any supporting dialogs
+     * it opens.
+     *
+     * Canvas content (elements, text editing surface, frame names, embeds) still
+     * renders, and the editor remains interactive unless `interaction` is set to
+     * `false`.
+     *
+     * Pass a config object to keep specific default controls rendered while the
+     * rest of the default UI is hidden (see `UIConfig`):
+     *
+     * ```tsx
+     * <Excalidraw ui={{ enabled: { zoom: true } }} />
+     * ```
+     *
+     * NOTE: this is WIP and what default UI is/is not rendered when ui=false
+     * may yet change.
+     *
+     * @default true
+     */
+    ui?: boolean | UIConfig;
+    /**
+     * Forces the active editor tool (controlled). While set, user- and
+     * API-driven tool switching is ignored — `setActiveTool` refuses with a
+     * console warning, non-forced toolbar buttons render disabled — and the
+     * editor snaps back if internal flows reset the tool. The forced tool
+     * behaves as if locked (see the tool lock / padlock): it doesn't revert to
+     * the selection tool after use, and elements drawn with it aren't
+     * auto-selected — without mutating `appState.activeTool.locked`, so the
+     * user's persisted padlock preference stays untouched. Unset to return
+     * tool control to the editor (the current tool stays active).
+     *
+     * The forced tool must be activatable to take effect: not disabled via
+     * `UIOptions.tools`, and — while the editor is non-interactive — allowed
+     * via `interaction.enabled.tools`. Otherwise the editor stays on (or, when
+     * non-interactive, resets to) the `selection` tool, and the forced tool is
+     * applied once it becomes activatable. `image` cannot be forced (its
+     * activation opens the file picker).
+     */
+    activeTool?: {
+        type: Exclude<ToolType, "image">;
+    } | {
+        type: "custom";
+        customType: string;
+    };
     zenModeEnabled?: boolean;
     gridModeEnabled?: boolean;
     objectsSnapModeEnabled?: boolean;
@@ -3365,6 +5255,21 @@ export interface ExcalidrawProps {
     showDeprecatedFonts?: boolean;
     insertLinkAction?: (linkVal: string) => void;
     renderScrollbars?: boolean;
+    viewportStatusFrame?: ViewportStatusFrame | null;
+    /**
+     * Rendered inside the UserList "who's here" dropdown (desktop) and inline
+     * in the mobile menu's collaborators section, below a divider. Accepts a
+     * render function — called with `isMobile` so hosts can render different
+     * UI for each surface — in addition to a plain node.
+     */
+    currentUserControls?: React.ReactNode | ((isMobile: boolean) => React.ReactNode);
+    /**
+     * The user being followed on the canvas, if any. Controlled by the host —
+     * the editor never sets it; it emits follow/unfollow intents via
+     * `onUserFollow` (prop or imperative API) and renders the followed
+     * user's avatar highlight from this value.
+     */
+    userToFollow?: UserToFollow | null;
     /**
      * Called before exporting to a file.
      *
@@ -3450,6 +5355,8 @@ export type AppProps = Merge<ExcalidrawProps, {
 export type AppClassProperties = {
     props: AppProps;
     state: AppState;
+    readonly ownerDocument: Document;
+    readonly ownerWindow: Window & typeof globalThis;
     api: App["api"];
     sessionExportThemeOverride: App["sessionExportThemeOverride"];
     interactiveCanvas: HTMLCanvasElement | null;
@@ -3470,8 +5377,7 @@ export type AppClassProperties = {
     id: App["id"];
     onInsertElements: App["onInsertElements"];
     onExportImage: App["onExportImage"];
-    lastViewportPosition: App["lastViewportPosition"];
-    scrollToContent: App["scrollToContent"];
+    viewport: App["viewport"];
     addFiles: App["addFiles"];
     addElementsFromPasteOrLibrary: App["addElementsFromPasteOrLibrary"];
     setSelection: App["setSelection"];
@@ -3483,11 +5389,15 @@ export type AppClassProperties = {
     onMagicframeToolSelect: App["onMagicframeToolSelect"];
     getName: App["getName"];
     dismissLinearEditor: App["dismissLinearEditor"];
-    flowChartCreator: App["flowChartCreator"];
+    flowchart: App["flowchart"];
+    drawShape: App["drawShape"];
+    arrowText: App["arrowText"];
+    cursor: App["cursor"];
+    bucketFill: App["bucketFill"];
+    isToolLocked: App["isToolLocked"];
     getEffectiveGridSize: App["getEffectiveGridSize"];
     setPlugins: App["setPlugins"];
     plugins: App["plugins"];
-    getEditorUIOffsets: App["getEditorUIOffsets"];
     visibleElements: App["visibleElements"];
     excalidrawContainerValue: App["excalidrawContainerValue"];
     onPointerUpEmitter: App["onPointerUpEmitter"];
@@ -3496,8 +5406,13 @@ export type AppClassProperties = {
     onEvent: App["onEvent"];
     onStateChange: App["onStateChange"];
     lastPointerMoveCoords: App["lastPointerMoveCoords"];
+    lastPointerMoveEvent: App["lastPointerMoveEvent"];
     bindModeHandler: App["bindModeHandler"];
+    emitUserFollowIntent: App["emitUserFollowIntent"];
+    requestUnfollow: App["requestUnfollow"];
     setAppState: App["setAppState"];
+    isInteractionEnabled: App["isInteractionEnabled"];
+    isNavigationEnabled: App["isNavigationEnabled"];
 };
 export type PointerDownState = Readonly<{
     origin: Readonly<{
@@ -3533,6 +5448,7 @@ export type PointerDownState = Readonly<{
         wasAddedToSelection: boolean;
         hasBeenDuplicated: boolean;
         hasHitCommonBoundingBoxOfSelectedElements: boolean;
+        arrowLabel: boolean;
     };
     withCmdOrCtrl: boolean;
     drag: {
@@ -3596,11 +5512,16 @@ export interface ExcalidrawImperativeAPI {
     getAppState: () => InstanceType<typeof App>["state"];
     getFiles: () => InstanceType<typeof App>["files"];
     getName: InstanceType<typeof App>["getName"];
-    scrollToContent: InstanceType<typeof App>["scrollToContent"];
+    setViewport: InstanceType<typeof App>["viewport"]["setViewport"];
+    getViewportOffsets: InstanceType<typeof App>["viewport"]["getOffsets"];
     registerAction: (action: Action) => void;
     refresh: InstanceType<typeof App>["refresh"];
     setToast: InstanceType<typeof App>["setToast"];
-    addFiles: (data: BinaryFileData[]) => void;
+    addFiles: (data: BinaryFileData[] | {
+        files: BinaryFileData[];
+        /** IDs of host-generated SVGs that already satisfy Excalidraw's normalization contract. */
+        skipSvgNormalization?: ReadonlySet<FileId>;
+    }) => void;
     updateContainerSize: InstanceType<typeof App>["updateContainerSize"];
     id: string;
     selectElements: (elements: readonly ExcalidrawElement[], highlightSearchResult?: boolean) => void;
@@ -3609,10 +5530,11 @@ export interface ExcalidrawImperativeAPI {
     sendToBack: (elements: readonly ExcalidrawElement[]) => void;
     bringToFront: (elements: readonly ExcalidrawElement[]) => void;
     setActiveTool: InstanceType<typeof App>["setActiveTool"];
-    setCursor: InstanceType<typeof App>["setCursor"];
-    resetCursor: InstanceType<typeof App>["resetCursor"];
+    setCursor: InstanceType<typeof App>["cursor"]["set"];
+    resetCursor: InstanceType<typeof App>["cursor"]["reset"];
     toggleSidebar: InstanceType<typeof App>["toggleSidebar"];
     getHTMLIFrameElement: InstanceType<typeof App>["getHTMLIFrameElement"];
+    awaitImageFiles: InstanceType<typeof App>["awaitImageFiles"];
     getEditorInterface: () => EditorInterface;
     /**
      * Disables rendering of frames (including element clipping), but currently
@@ -3634,7 +5556,6 @@ export type FrameNameBounds = {
     y: number;
     width: number;
     height: number;
-    angle: number;
 };
 export type FrameNameBoundsCache = {
     get: (frameElement: ExcalidrawFrameLikeElement | ExcalidrawMagicFrameElement) => FrameNameBounds | null;
@@ -3653,12 +5574,18 @@ export type Primitive = number | string | boolean | bigint | symbol | null | und
 export type JSONValue = string | number | boolean | null | object;
 export type EmbedsValidationStatus = Map<ExcalidrawIframeLikeElement["id"], boolean>;
 export type ElementsPendingErasure = Set<ExcalidrawElement["id"]>;
-export type PendingExcalidrawElements = ExcalidrawElement[];
+export type PendingExcalidrawElements = NonDeletedExcalidrawElement[];
 /** Runtime gridSize value. Null indicates disabled grid. */
 export type NullableGridSize = (AppState["gridSize"] & MakeBrand<"NullableGridSize">) | null;
 export type GenerateDiagramToCode = (props: {
-    frame: ExcalidrawMagicFrameElement;
-    children: readonly ExcalidrawElement[];
+    frame: NonDeleted<ExcalidrawMagicFrameElement>;
+    children: readonly NonDeletedExcalidrawElement[];
+    /**
+     * Optional streaming hook. Call with the accumulated response text as it
+     * streams in so the editor can progressively render the partial HTML
+     * inside the generated frame.
+     */
+    onPartial?: (html: string) => void;
 }) => MaybePromise<{
     html: string;
 }>;
@@ -3668,685 +5595,892 @@ export type Offsets = Partial<{
     bottom: number;
     left: number;
 }>;
-
-/* ************************************** */
-/* node_modules/@zsviczian/excalidraw/types/element/src/bounds.d.ts */
-/* ************************************** */
-export type RectangleBox = {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-    angle: number;
-};
-export type SceneBounds = readonly [
-    sceneX: number,
-    sceneY: number,
-    sceneX2: number,
-    sceneY2: number
-];
-export declare class ElementBounds {
-    private static boundsCache;
-    private static nonRotatedBoundsCache;
-    static getBounds(element: ExcalidrawElement, elementsMap: ElementsMap, nonRotated?: boolean): Bounds;
-    private static calculateBounds;
-}
-export declare const getElementAbsoluteCoords: (element: ExcalidrawElement, elementsMap: ElementsMap, includeBoundText?: boolean) => [number, number, number, number, number, number];
 /**
- * Given an element, return the line segments that make up the element.
+ * Value of the `data-viewport-ui` attribute, marking a DOM node as a UI
+ * surface that occludes the canvas. Such nodes are measured by
+ * `getViewportOffsets` to compute the default per-side viewport offsets:
  *
- * Uses helpers from /math
- */
-export declare const getElementLineSegments: (element: ExcalidrawElement, elementsMap: ElementsMap) => LineSegment<GlobalPoint>[];
-/**
- * Scene -> Scene coords, but in x1,x2,y1,y2 format.
+ * - `top` / `bottom` — offsets that side by the node's bottom/top edge
+ * - `side` — a panel hugging the left or right edge. Which side is not
+ *   declared but resolved geometrically: if the node's horizontal center
+ *   lies in the left half of the viewport it counts against the left
+ *   offset (by its right edge), otherwise against the right offset (by
+ *   `viewportWidth - left edge`). Measuring the rendered position instead
+ *   of declaring a side means RTL layouts and host-configurable docking
+ *   (e.g. sidebar side) are handled for free — but it assumes the surface
+ *   actually hugs one edge; don't mark a centered/near-full-width node as
+ *   `side` (its midpoint would classify it to one side and the offset
+ *   would swallow most of the viewport).
  *
- * Rectangle here means any rectangular frame, not an excalidraw element.
+ * The attribute should only be present while the surface is actually
+ * rendered — omit it (don't just hide the node) when the surface shouldn't
+ * push the viewport around.
  */
-export declare const getRectangleBoxAbsoluteCoords: (boxSceneCoords: RectangleBox) => number[];
-export declare const getDiamondPoints: (element: ExcalidrawElement) => number[];
-export declare const getCubicBezierCurveBound: (p0: GlobalPoint, p1: GlobalPoint, p2: GlobalPoint, p3: GlobalPoint) => Bounds;
-export declare const getMinMaxXYFromCurvePathOps: (ops: Op[], transformXY?: (p: GlobalPoint) => GlobalPoint) => Bounds;
-export declare const getBoundsFromPoints: <P extends GlobalPoint | LocalPoint>(points: readonly P[], padding?: number) => Bounds;
-/** @returns number in pixels */
-export declare const getArrowheadSize: (arrowhead: Arrowhead) => number;
-/** @returns number in degrees */
-export declare const getArrowheadAngle: (arrowhead: Arrowhead) => Degrees;
-export declare const getArrowheadPoints: (element: ExcalidrawLinearElement, shape: Drawable[], position: "start" | "end", arrowhead: Arrowhead, offsetMultiplier?: number) => number[] | null;
-export declare const getElementBounds: (element: ExcalidrawElement, elementsMap: ElementsMap, nonRotated?: boolean) => Bounds;
-export declare const getCommonBounds: (elements: ElementsMapOrArray, elementsMap?: ElementsMap) => Bounds;
-export declare const getDraggedElementsBounds: (elements: ExcalidrawElement[], dragOffset: {
-    x: number;
-    y: number;
-}) => number[];
-export declare const getResizedElementAbsoluteCoords: (element: ExcalidrawElement, nextWidth: number, nextHeight: number, normalizePoints: boolean) => Bounds;
-export declare const getElementPointsCoords: (element: ExcalidrawLinearElement, points: readonly (readonly [number, number])[]) => Bounds;
-export declare const getClosestElementBounds: (elements: readonly ExcalidrawElement[], from: {
-    x: number;
-    y: number;
-}) => Bounds;
-export interface BoundingBox {
-    minX: number;
-    minY: number;
-    maxX: number;
-    maxY: number;
-    midX: number;
-    midY: number;
-    width: number;
-    height: number;
-}
-export declare const getCommonBoundingBox: (elements: readonly ExcalidrawElement[] | readonly NonDeleted<ExcalidrawElement>[]) => BoundingBox;
+export type ViewportUIDock = "top" | "bottom" | "side";
 /**
- * returns scene coords of user's editor viewport (visible canvas area) bounds
- */
-export declare const getVisibleSceneBounds: ({ scrollX, scrollY, width, height, zoom, }: AppState) => SceneBounds;
-export declare const getCenterForBounds: (bounds: Bounds) => GlobalPoint;
-/**
- * Get the axis-aligned bounding box for a given element
- */
-export declare const aabbForElement: (element: Readonly<ExcalidrawElement>, elementsMap: ElementsMap, offset?: [number, number, number, number]) => Bounds;
-export declare const pointInsideBounds: <P extends GlobalPoint | LocalPoint>(p: P, bounds: Bounds) => boolean;
-export declare const pointInsideBoundsInclusive: <P extends GlobalPoint | LocalPoint>(p: P, bounds: Bounds) => boolean;
-export declare const doBoundsIntersect: (bounds1: Bounds | null, bounds2: Bounds | null) => boolean;
-export declare const boundsContainBounds: (outerBounds: Bounds, innerBounds: Bounds) => boolean;
-/**
- * High level helper to get elements overlapping a bounding box.
- * It can be used to get elements overlapping a selection box, for example.
+ * Options for `getViewportOffsets` (and the `ui` key of
+ * {@link ViewportOffsets}), controlling how offsets are derived from the
+ * currently rendered editor UI.
  *
+ * NOTE unlike the physical sides of {@link Offsets}, the horizontal values
+ * here are logical, i.e. flipped in RTL layouts (`left` refers to the
+ * reading-direction start side).
  */
-export declare const elementsOverlappingBBox: ({ elements, elementsMap, bounds, type, excludeElementsInFrames, shouldIgnoreElementFromSelection, }: {
-    elements: readonly NonDeletedExcalidrawElement[];
-    elementsMap?: ElementsMap;
-    bounds: Bounds | ExcalidrawElement;
+export type ViewportOffsetsOptions = {
+    /** padding added to each measured side (default 24) */
+    padding?: number;
+    paddingTop?: number;
+    paddingRight?: number;
+    paddingBottom?: number;
+    paddingLeft?: number;
+    /** final value for the given side, replacing the measured UI size
+     * (padding is not added on top) */
+    top?: number;
+    bottom?: number;
+    left?: number;
+    right?: number;
     /**
-     * - overlap: elements overlapping or inside bounds
-     * - contain: elements inside bounds
-     **/
-    type: "contain" | "overlap";
-    excludeElementsInFrames?: boolean;
-    shouldIgnoreElementFromSelection?: (element: NonDeletedExcalidrawElement) => boolean;
-}) => NonDeletedExcalidrawElement[];
-export declare const elementCenterPoint: (element: ExcalidrawElement, elementsMap: ElementsMap, xOffset?: number, yOffset?: number) => GlobalPoint;
-
-/* ************************************** */
-/* node_modules/@zsviczian/excalidraw/types/excalidraw/components/App.d.ts */
-/* ************************************** */
-declare const editorLifecycleEventBehavior: {
-    readonly "editor:mount": {
-        readonly cardinality: "once";
-        readonly replay: "last";
-    };
-    readonly "editor:initialize": {
-        readonly cardinality: "once";
-        readonly replay: "last";
-    };
-    readonly "editor:unmount": {
-        readonly cardinality: "once";
-        readonly replay: "last";
+     * Reserve space for the given conditionally-rendered surfaces even while
+     * they're hidden, so the resulting offsets don't shift when they
+     * (dis)appear. Uses the surface's last-measured footprint, falling back
+     * to an approximate default if it hasn't been rendered yet. Ignored on
+     * phones (where these surfaces never occlude the canvas).
+     */
+    reserve?: {
+        /** styles panel (rendered when a tool or selection is active) */
+        stylesPanel?: boolean;
+        /** sidebar (e.g. library) */
+        sidebar?: boolean;
     };
 };
-export declare const ExcalidrawContainerContext: React.Context<{
-    container: HTMLDivElement | null;
-    id: string | null;
-}>;
-export declare const ExcalidrawAPIContext: React.Context<ExcalidrawImperativeAPI | null>;
-export declare const ExcalidrawAPISetContext: React.Context<((api: ExcalidrawImperativeAPI | null) => void) | null>;
-export declare const useApp: () => AppClassProperties;
-export declare const useAppProps: () => AppProps;
-export declare const useEditorInterface: () => Readonly<{
-    formFactor: "phone" | "tablet" | "desktop";
-    desktopUIMode: "compact" | "full" | "tray" | "mobile";
-    userAgent: Readonly<{
-        isMobileDevice: boolean;
-        platform: "ios" | "android" | "other" | "unknown";
+/**
+ * Viewport offsets accepted by the `setViewport`-family APIs (`setViewport`,
+ * `props.initialState.viewport`), insetting the usable viewport area per
+ * side so the target isn't fitted/centered underneath overlaid UI.
+ *
+ * Two (combinable) ways to specify:
+ *
+ * - **Static sides** (`top`/`right`/`bottom`/`left`) — absolute pixel
+ *   values, used as-is: physical (not flipped in RTL), zoom-independent,
+ *   no padding added. Sides not specified default to `0` (unless `ui` is
+ *   set, see below).
+ *
+ * - **`ui`** — derive the offsets from the editor UI (toolbar, styles
+ *   panel, sidebar...) as rendered at the time the viewport is set,
+ *   equivalent to calling `getViewportOffsets()`. Pass `true` for the
+ *   defaults, or options ({@link ViewportOffsetsOptions}) to customize
+ *   padding or reserve space for currently-hidden surfaces.
+ *
+ * When both are given, a static side always wins for that side — it
+ * replaces whatever `ui` would yield (including `ui`'s own side overrides,
+ * which — unlike the physical static sides — are RTL-relative). The
+ * remaining sides fall back to the `ui`-derived values.
+ *
+ * @example
+ * { top: 40 }                              // top 40px, other sides 0
+ * { ui: true }                             // measured UI + default padding
+ * { ui: { reserve: { stylesPanel: true } } } // + keep space for hidden panel
+ * { top: 40, ui: true }                    // top exactly 40px, rest from UI
+ */
+export type ViewportOffsets = Offsets & {
+    ui?: true | ViewportOffsetsOptions;
+};
+/**
+ * Value of the `data-viewport-ui-name` attribute, identifying a
+ * conditionally-rendered surface (marked with `data-viewport-ui`) so that
+ * `getViewportOffsets` can reserve space for it while it's hidden (see the
+ * `reserve` option). Whenever a named surface is rendered, its measured
+ * footprint is remembered; reserving uses that remembered footprint, or an
+ * approximate default if the surface hasn't been rendered yet.
+ */
+export type ViewportUIName = "sidebar" | "stylesPanel";
+
+/* ********************************** */
+/* src/types/excalidrawLib.d.ts */
+/* ********************************** */
+ElementsMap,
+  ElementsMapOrArray,
+  ExcalidrawBindableElement,
+  ExcalidrawElement,
+  ExcalidrawFrameElement,
+  ExcalidrawFrameLikeElement,
+  ExcalidrawTextContainer,
+  ExcalidrawTextElement,
+  FontFamilyValues,
+  FontString,
+  NonDeleted,
+  NonDeletedExcalidrawElement,
+  OrderedExcalidrawElement,
+  Theme,
+} from "@zsviczian/excalidraw/types/element/src/types";
+import {
+  CombineBrandsIfNeeded,
+  FontMetadata,
+} from "@zsviczian/excalidraw/types/common/src";
+import {
+  AppState,
+  BinaryFiles,
+  DataURL,
+  LibraryItem,
+  LibraryItems_anyVersion,
+  Zoom,
+} from "@zsviczian/excalidraw/types/excalidraw/types";
+import { Mutable } from "@zsviczian/excalidraw/types/common/src/utility-types";
+import { GlobalPoint } from "@zsviczian/excalidraw/types/math/src/types";
+
+type JsonValue = string | number | boolean | null | JsonObject | JsonValue[];
+
+type JsonObject = {
+  [key: string]: JsonValue;
+};
+
+type MermaidToExcalidrawLibProps =
+  import("@zsviczian/excalidraw/types/excalidraw/components/TTDDialog/types").MermaidToExcalidrawLibProps;
+
+interface MermaidConfig {
+  /**
+   * Whether to start the diagram automatically when the page loads.
+   * @default false
+   */
+  startOnLoad?: boolean;
+  /**
+   * The flowchart curve style.
+   * @default "linear"
+   */
+  flowchart?: {
+    curve?: "linear" | "basis";
+  };
+  /**
+   * Theme variables
+   * @default { fontSize: "25px" }
+   */
+  themeVariables?: {
+    fontSize?: string;
+  };
+  /**
+   * Maximum number of edges to be rendered.
+   * @default 1000
+   */
+  maxEdges?: number;
+  /**
+   * Maximum number of characters to be rendered.
+   * @default 1000
+   */
+  maxTextSize?: number;
+}
+
+type EmbeddedLink =
+  | ({
+      aspectRatio: { w: number; h: number };
+      warning?: string;
+    } & (
+      | { type: "video" | "generic"; link: string }
+      | { type: "document"; srcdoc: (theme: Theme) => string }
+    ))
+  | null;
+
+declare namespace ExcalidrawLib {
+  type ObsidianCommonHostUIMode = "full" | "compact" | "tray" | "mobile";
+
+  type ObsidianCommonHostAdapter = Readonly<{
+    protocolVersion: 1;
+    getDeviceInfo: () => Readonly<{
+      isDesktop: boolean;
+      isPhone: boolean;
+      isTablet: boolean;
+      isMobile: boolean;
+      isLinux: boolean;
+      isMacOS: boolean;
+      isWindows: boolean;
+      isIOS: boolean;
+      isAndroid: boolean;
+    }> | null;
+    getDesktopUIMode: () => ObsidianCommonHostUIMode;
+    getPreferredUIMode: (
+      formFactor: "phone" | "tablet" | "desktop",
+    ) => ObsidianCommonHostUIMode;
+    getCanvasLimits: () => Readonly<{
+      areaLimit: number;
+      widthHeightLimit: number;
     }>;
-    isTouchScreen: boolean;
-    canFitSidebar: boolean;
-    isLandscape: boolean;
-}>;
-export declare const useStylesPanelMode: () => StylesPanelMode;
-export declare const useExcalidrawContainer: () => {
-    container: HTMLDivElement | null;
-    id: string | null;
-};
-export declare const useExcalidrawElements: () => readonly NonDeletedExcalidrawElement[];
-export declare const useExcalidrawAppState: () => AppState;
-export declare const useExcalidrawSetAppState: () => <K extends keyof AppState>(state: AppState | ((prevState: Readonly<AppState>, props: Readonly<any>) => AppState | Pick<AppState, K> | null) | Pick<AppState, K> | null, callback?: (() => void) | undefined) => void;
-export declare const useExcalidrawActionManager: () => ActionManager;
-/**
- * Requires wrapping your component in <ExcalidrawAPIContext.Provider>
- */
-export declare const useExcalidrawAPI: () => ExcalidrawImperativeAPI | null;
-declare class App extends React.Component<AppProps, AppState> {
-    canvas: AppClassProperties["canvas"];
-    interactiveCanvas: AppClassProperties["interactiveCanvas"];
-    sessionExportThemeOverride: AppState["theme"] | undefined;
-    rc: RoughCanvas;
-    unmounted: boolean;
-    actionManager: ActionManager;
-    editorInterface: EditorInterface;
-    private stylesPanelMode;
-    private excalidrawContainerRef;
-    scene: Scene;
-    fonts: Fonts;
-    renderer: Renderer;
-    visibleElements: readonly NonDeletedExcalidrawElement[];
-    private resizeObserver;
-    library: AppClassProperties["library"];
-    libraryItemsFromStorage: LibraryItems | undefined;
-    id: string;
-    private store;
-    private history;
-    private shouldRenderAllEmbeddables;
-    excalidrawContainerValue: {
-        container: HTMLDivElement | null;
-        id: string;
-    };
-    files: BinaryFiles;
-    imageCache: AppClassProperties["imageCache"];
-    private iFrameRefs;
-    /**
-     * Indicates whether the embeddable's url has been validated for rendering.
-     * If value not set, indicates that the validation is pending.
-     * Initially or on url change the flag is not reset so that we can guarantee
-     * the validation came from a trusted source (the editor).
-     **/
-    private embedsValidationStatus;
-    /** embeds that have been inserted to DOM (as a perf optim, we don't want to
-     * insert to DOM before user initially scrolls to them) */
-    private initializedEmbeds;
-    private elementsPendingErasure;
-    private _initialized;
-    private readonly editorLifecycleEvents;
-    onEvent: AppEventBus<ExcalidrawImperativeAPIEventMap, typeof editorLifecycleEventBehavior>["on"];
-    private appStateObserver;
-    onStateChange: OnStateChange;
-    flowChartCreator: FlowChartCreator;
-    private flowChartNavigator;
-    bindModeHandler: ReturnType<typeof setTimeout> | null;
-    hitLinkElement?: NonDeletedExcalidrawElement;
-    lastPointerDownEvent: React.PointerEvent<HTMLElement> | null;
-    lastPointerUpEvent: React.PointerEvent<HTMLElement> | PointerEvent | null;
-    lastPointerUpIsDoubleClick: boolean;
-    lastPointerMoveEvent: PointerEvent | null;
-    /** current frame pointer cords */
-    lastPointerMoveCoords: {
-        x: number;
-        y: number;
-    } | null;
-    private lastCompletedCanvasClicks;
-    /** previous frame pointer coords */
-    previousPointerMoveCoords: {
-        x: number;
-        y: number;
-    } | null;
-    lastViewportPosition: {
-        x: number;
-        y: number;
-    };
-    allowMobileMode: boolean;
-    laserTrails: LaserTrails;
-    eraserTrail: EraserTrail;
-    lassoTrail: LassoTrail;
-    onChangeEmitter: Emitter<[elements: readonly ExcalidrawElement[], appState: AppState, files: BinaryFiles]>;
-    onPointerDownEmitter: Emitter<[activeTool: {
-        lastActiveTool: import("../types").ActiveTool | null;
-        locked: boolean;
-        fromSelection: boolean;
-    } & import("../types").ActiveTool, pointerDownState: Readonly<{
-        origin: Readonly<{
-            x: number;
-            y: number;
-        }>;
-        originInGrid: Readonly<{
-            x: number;
-            y: number;
-        }>;
-        scrollbars: ReturnType<typeof isOverScrollBars>;
-        lastCoords: {
-            x: number;
-            y: number;
-        };
-        originalElements: Map<string, NonDeleted<ExcalidrawElement>>;
-        resize: {
-            handleType: import("@excalidraw/element").MaybeTransformHandleType;
-            isResizing: boolean;
-            offset: {
-                x: number;
-                y: number;
-            };
-            arrowDirection: "origin" | "end";
-            center: {
-                x: number;
-                y: number;
-            };
-        };
-        hit: {
-            element: NonDeleted<ExcalidrawElement> | null;
-            allHitElements: NonDeleted<ExcalidrawElement>[];
-            wasAddedToSelection: boolean;
-            hasBeenDuplicated: boolean;
-            hasHitCommonBoundingBoxOfSelectedElements: boolean;
-        };
-        withCmdOrCtrl: boolean;
-        drag: {
-            hasOccurred: boolean;
-            offset: {
-                x: number;
-                y: number;
-            } | null;
-            origin: {
-                x: number;
-                y: number;
-            };
-            blockDragging: boolean;
-        };
-        eventListeners: {
-            onMove: null | ReturnType<typeof import("@excalidraw/common").throttleRAF>;
-            onUp: null | ((event: PointerEvent) => void);
-            onKeyDown: null | ((event: KeyboardEvent) => void);
-            onKeyUp: null | ((event: KeyboardEvent) => void);
-        };
-        boxSelection: {
-            hasOccurred: boolean;
-        };
-    }>, event: React.PointerEvent<HTMLElement>]>;
-    onPointerUpEmitter: Emitter<[activeTool: {
-        lastActiveTool: import("../types").ActiveTool | null;
-        locked: boolean;
-        fromSelection: boolean;
-    } & import("../types").ActiveTool, pointerDownState: Readonly<{
-        origin: Readonly<{
-            x: number;
-            y: number;
-        }>;
-        originInGrid: Readonly<{
-            x: number;
-            y: number;
-        }>;
-        scrollbars: ReturnType<typeof isOverScrollBars>;
-        lastCoords: {
-            x: number;
-            y: number;
-        };
-        originalElements: Map<string, NonDeleted<ExcalidrawElement>>;
-        resize: {
-            handleType: import("@excalidraw/element").MaybeTransformHandleType;
-            isResizing: boolean;
-            offset: {
-                x: number;
-                y: number;
-            };
-            arrowDirection: "origin" | "end";
-            center: {
-                x: number;
-                y: number;
-            };
-        };
-        hit: {
-            element: NonDeleted<ExcalidrawElement> | null;
-            allHitElements: NonDeleted<ExcalidrawElement>[];
-            wasAddedToSelection: boolean;
-            hasBeenDuplicated: boolean;
-            hasHitCommonBoundingBoxOfSelectedElements: boolean;
-        };
-        withCmdOrCtrl: boolean;
-        drag: {
-            hasOccurred: boolean;
-            offset: {
-                x: number;
-                y: number;
-            } | null;
-            origin: {
-                x: number;
-                y: number;
-            };
-            blockDragging: boolean;
-        };
-        eventListeners: {
-            onMove: null | ReturnType<typeof import("@excalidraw/common").throttleRAF>;
-            onUp: null | ((event: PointerEvent) => void);
-            onKeyDown: null | ((event: KeyboardEvent) => void);
-            onKeyUp: null | ((event: KeyboardEvent) => void);
-        };
-        boxSelection: {
-            hasOccurred: boolean;
-        };
-    }>, event: PointerEvent]>;
-    onUserFollowEmitter: Emitter<[payload: OnUserFollowedPayload]>;
-    onScrollChangeEmitter: Emitter<[scrollX: number, scrollY: number, zoom: Readonly<{
-        value: import("../types").NormalizedZoomValue;
-    }>]>;
-    missingPointerEventCleanupEmitter: Emitter<[event: PointerEvent | null]>;
-    onRemoveEventListenersEmitter: Emitter<[]>;
-    api: ExcalidrawImperativeAPI;
-    private createExcalidrawAPI;
-    constructor(props: AppProps);
-    updateEditorAtom: <Value, Args extends unknown[], Result>(atom: WritableAtom<Value, Args, Result>, ...args: Args) => Result;
-    private onWindowMessage;
-    private handleSkipBindMode;
-    private resetDelayedBindMode;
-    private previousHoveredBindableElement;
-    private handleDelayedBindModeChange;
-    private cacheEmbeddableRef;
-    /**
-     * Returns gridSize taking into account `gridModeEnabled`.
-     * If disabled, returns null.
-     */
-    getEffectiveGridSize: () => NullableGridSize;
-    private getTextCreationGridPoint;
-    private getHTMLIFrameElement;
-    private handleIframeLikeElementHover;
-    /** @returns true if iframe-like element click handled */
-    private handleIframeLikeCenterClick;
-    private isDoubleClick;
-    private isIframeLikeElementCenter;
-    private updateEmbedValidationStatus;
-    private updateEmbeddables;
-    private renderEmbeddables;
-    private getFrameNameDOMId;
-    frameNameBoundsCache: FrameNameBoundsCache;
-    private resetEditingFrame;
-    private renderFrameNames;
-    private toggleOverscrollBehavior;
-    render(): import("react/jsx-runtime").JSX.Element;
-    focusContainer: AppClassProperties["focusContainer"];
-    getSceneElementsIncludingDeleted: () => readonly import("@excalidraw/element/types").OrderedExcalidrawElement[];
-    getSceneElementsMapIncludingDeleted: () => SceneElementsMap;
-    getSceneElements: () => readonly Ordered<NonDeletedExcalidrawElement>[];
-    onInsertElements: (elements: readonly ExcalidrawElement[]) => void;
-    onExportImage: (type: keyof typeof EXPORT_IMAGE_TYPES, elements: ExportedElements, opts: {
-        exportingFrame: ExcalidrawFrameLikeElement | null;
-    }) => Promise<void>;
-    private magicGenerations;
-    private updateMagicGeneration;
-    plugins: {
-        diagramToCode?: {
-            generate: GenerateDiagramToCode;
-        };
-    };
-    setPlugins(plugins: Partial<App["plugins"]>): void;
-    private onMagicFrameGenerate;
-    private onIframeSrcCopy;
-    onMagicframeToolSelect: () => void;
-    private openEyeDropper;
-    dismissLinearEditor: () => void;
-    syncActionResult: (actionResult: ActionResult) => void;
-    private onBlur;
-    private onUnload;
-    private disableEvent;
-    private resetHistory;
-    private undo;
-    private redo;
-    private resetStore;
-    /**
-     * Resets scene & history.
-     * ! Do not use to clear scene user action !
-     */
-    private resetScene;
-    private initializeScene;
-    private getFormFactor;
-    refreshEditorInterface: () => void;
-    private reconcileStylesPanelMode;
-    /** TO BE USED LATER */
-    private setDesktopUIMode;
-    private isTouchScreen;
-    isTrayModeEnabled: () => boolean;
-    private clearImageShapeCache;
-    componentDidMount(): Promise<void>;
-    componentWillUnmount(): void;
-    private onResize;
-    /** generally invoked only if fullscreen was invoked programmatically */
-    private onFullscreenChange;
-    private removeEventListeners;
-    private addEventListeners;
-    componentDidUpdate(prevProps: AppProps, prevState: AppState): void;
-    private renderInteractiveSceneCallback;
-    private onScroll;
-    private onCut;
-    private onCopy;
-    private static resetTapTwice;
-    private onTouchStart;
-    private onTouchEnd;
-    private insertClipboardContent;
-    pasteFromClipboard: (event: ClipboardEvent) => Promise<void>;
-    addElementsFromPasteOrLibrary: (opts: {
-        elements: readonly ExcalidrawElement[];
-        files: BinaryFiles | null;
-        position: {
-            clientX: number;
-            clientY: number;
-        } | "cursor" | "center";
-        retainSeed?: boolean;
-        fitToContent?: boolean;
-        preserveFrameChildrenOrder?: boolean;
-    }) => void;
-    private addElementsFromMixedContentPaste;
-    private addTextFromPaste;
-    setAppState: React.Component<any, AppState>["setState"];
-    removePointer: (event: React.PointerEvent<HTMLElement> | PointerEvent) => void;
-    toggleLock: (source?: "keyboard" | "ui") => void;
-    updateFrameRendering: (opts: Partial<AppState["frameRendering"]> | ((prevState: AppState["frameRendering"]) => Partial<AppState["frameRendering"]>)) => void;
-    togglePenMode: (force: boolean | null) => void;
-    onHandToolToggle: () => void;
-    /**
-     * Zooms on canvas viewport center
-     */
-    zoomCanvas: (
-    /**
-     * Decimal fraction, auto-clamped between MIN_ZOOM and MAX_ZOOM.
-     * 1 = 100% zoom, 2 = 200% zoom, 0.5 = 50% zoom
-     */
-    value: number) => void;
-    scrollToContent: (target?: string | ExcalidrawElement | readonly NonDeletedExcalidrawElement[], opts?: ScrollToContentOptions) => void;
-    private maybeUnfollowRemoteUser;
-    /** use when changing scrollX/scrollY/zoom based on user interaction */
-    private translateCanvas;
-    setForceRenderAllEmbeddables: (force: boolean) => void;
-    zoomToFit: (target?: readonly ExcalidrawElement[], maxZoom?: number, //null will zoom to max based on viewport
-    margin?: number) => void;
-    getColorAtScenePoint: ({ sceneX, sceneY, }: {
-        sceneX: number;
-        sceneY: number;
-    }) => string | null;
-    startLineEditor: (el: ExcalidrawLinearElement, selectedPointsIndices?: number[] | null) => void;
-    refreshAllArrows: () => void;
-    updateContainerSize: (containers: NonDeletedExcalidrawElement[]) => void;
-    setToast: (toast: AppState["toast"]) => void;
-    restoreFileFromShare: () => Promise<void>;
-    /**
-     * adds supplied files to existing files in the appState.
-     * NOTE if file already exists in editor state, the file data is not updated
-     * */
-    addFiles: ExcalidrawImperativeAPI["addFiles"];
-    setMobileModeAllowed: (allow: boolean) => void;
-    private debounceClearHighlightSearchResults;
-    selectElements: ExcalidrawImperativeAPI["selectElements"];
-    bringToFront: ExcalidrawImperativeAPI["bringToFront"];
-    bringForward: ExcalidrawImperativeAPI["bringForward"];
-    sendToBack: ExcalidrawImperativeAPI["sendToBack"];
-    sendBackward: ExcalidrawImperativeAPI["sendBackward"];
-    private addMissingFiles;
-    updateScene: <K extends keyof AppState>(sceneData: {
-        elements?: SceneData["elements"];
-        appState?: Pick<AppState, K> | null;
-        collaborators?: SceneData["collaborators"];
-        /**
-         *  Controls which updates should be captured by the `Store`. Captured updates are emmitted and listened to by other components, such as `History` for undo / redo purposes.
-         *
-         *  - `CaptureUpdateAction.IMMEDIATELY`: Updates are immediately undoable. Use for most local updates.
-         *  - `CaptureUpdateAction.NEVER`: Updates never make it to undo/redo stack. Use for remote updates or scene initialization.
-         *  - `CaptureUpdateAction.EVENTUALLY`: Updates will be eventually be captured as part of a future increment.
-         *
-         * Check [API docs](https://docs.excalidraw.com/docs/@excalidraw/excalidraw/api/props/excalidraw-api#captureUpdate) for more details.
-         *
-         * @default CaptureUpdateAction.EVENTUALLY
-         */
-        captureUpdate?: SceneData["captureUpdate"];
-        forceFlushSync?: boolean;
-    }) => void;
-    applyDeltas: (deltas: StoreDelta[], options?: ApplyToOptions) => [SceneElementsMap, AppState, boolean];
-    mutateElement: <TElement extends Mutable<ExcalidrawElement>>(element: TElement, updates: ElementUpdate<TElement>, informMutation?: boolean) => TElement;
-    private triggerRender;
-    /**
-     * @returns whether the menu was toggled on or off
-     */
-    toggleSidebar: ({ name, tab, force, }: {
-        name: SidebarName | null;
-        tab?: SidebarTabName;
-        force?: boolean;
-    }) => boolean;
-    private updateCurrentCursorPosition;
-    getEditorUIOffsets: () => Offsets;
-    private onKeyDown;
-    private onKeyUp;
-    private isToolSupported;
-    setActiveTool: (tool: ({
-        type: ToolType;
-    } | {
-        type: "custom";
-        customType: string;
-    }) & {
-        locked?: boolean;
-        fromSelection?: boolean;
-    }, keepSelection?: boolean) => void;
-    setOpenDialog: (dialogType: AppState["openDialog"]) => void;
-    private setCursor;
-    private resetCursor;
-    /**
-     * returns whether user is making a gesture with >= 2 fingers (points)
-     * on o touch screen (not on a trackpad). Currently only relates to Darwin
-     * (iOS/iPadOS,MacOS), but may work on other devices in the future if
-     * GestureEvent is standardized.
-     */
-    private isTouchScreenMultiTouchGesture;
-    getName: () => string;
-    private onGestureStart;
-    private onGestureChange;
-    private onGestureEnd;
-    private handleTextWysiwyg;
-    private deselectElements;
-    private getSelectedTextElement;
-    private getSelectedTextEditingContainerAtPosition;
-    private getTextElementAtPosition;
-    private isHittingTextAutoResizeHandle;
-    private handleTextAutoResizeHandlePointerDown;
-    private getElementAtPosition;
-    private getElementsAtPosition;
-    getElementHitThreshold(element: ExcalidrawElement): number;
-    private hitElement;
-    private getTextBindableContainerAtPosition;
-    private startTextEditing;
-    private debounceDoubleClickTimestamp;
-    private startImageCropping;
-    private finishImageCropping;
-    private shouldHandleBrowserCanvasDoubleClick;
-    private handleCanvasDoubleClick;
-    private handleCanvasClick;
-    private getElementLinkAtPosition;
-    private handleElementLinkClick;
-    /**
-     * finds candidate frame under cursor (when dragging frame children/elements
-     * inside frames)
-     */
-    private getTopLayerFrameAtSceneCoords;
-    private updateFrameToHighlight;
-    private maybeUpdateFrameToHighlightOnPointerMove;
-    private insertNewElements;
-    private insertNewElement;
-    private handleCanvasPointerMove;
-    private handleEraser;
-    private handleTouchMove;
-    handleHoverSelectedLinearElement(linearElementEditor: LinearElementEditor, scenePointerX: number, scenePointerY: number): void;
-    private handleCanvasPointerDown;
-    private handleCanvasPointerUp;
-    private maybeOpenContextMenuAfterPointerDownOnTouchDevices;
-    private resetContextMenuTimer;
-    /**
-     * pointerup may not fire in certian cases (user tabs away...), so in order
-     * to properly cleanup pointerdown state, we need to fire any hanging
-     * pointerup handlers manually
-     */
-    private maybeCleanupAfterMissingPointerUp;
-    handleCanvasPanUsingWheelOrSpaceDrag: (event: React.PointerEvent<HTMLElement> | MouseEvent) => boolean;
-    private startRightClickPanning;
-    private updateGestureOnPointerDown;
-    private initialPointerDownState;
-    private handleDraggingScrollBar;
-    private clearSelectionIfNotUsingSelection;
-    /**
-     * @returns whether the pointer event has been completely handled
-     */
-    private handleSelectionOnPointerDown;
-    private isASelectedElement;
-    private isHittingCommonBoundingBoxOfSelectedElements;
-    private handleTextOnPointerDown;
-    private handleFreeDrawElementOnPointerDown;
-    insertIframeElement: ({ sceneX, sceneY, width, height, }: {
-        sceneX: number;
-        sceneY: number;
-        width: number;
-        height: number;
-    }) => NonDeleted<ExcalidrawIframeElement>;
-    insertEmbeddableElement: ({ sceneX, sceneY, link, }: {
-        sceneX: number;
-        sceneY: number;
-        link: string;
-    }) => NonDeleted<ExcalidrawEmbeddableElement> | undefined;
-    private newImagePlaceholder;
-    private handleLinearElementOnPointerDown;
-    private getCurrentItemRoundness;
-    private getCurrentItemStrokeWidth;
-    private createGenericElementOnPointerDown;
-    private createFrameElementOnPointerDown;
-    private maybeCacheReferenceSnapPoints;
-    private maybeCacheVisibleGaps;
-    private onKeyDownFromPointerDownHandler;
-    private onKeyUpFromPointerDownHandler;
-    private onPointerMoveFromPointerDownHandler;
-    private handlePointerMoveOverScrollbars;
-    private onPointerUpFromPointerDownHandler;
-    private restoreReadyToEraseElements;
-    private eraseElements;
-    private initializeImage;
-    /**
-     * use during async image initialization,
-     * when the placeholder image could have been modified in the meantime,
-     * and when you don't want to loose those modifications
-     */
-    private getLatestInitializedImageElement;
-    private onImageToolbarButtonClick;
-    private getImageNaturalDimensions;
-    /** updates image cache, refreshing updated elements and/or setting status
-        to error for images that fail during <img> element creation */
-    private updateImageCache;
-    /** adds new images to imageCache and re-renders if needed */
-    private addNewImagesToImageCache;
-    /** generally you should use `addNewImagesToImageCache()` directly if you need
-     *  to render new images. This is just a failsafe  */
-    private scheduleImageRefresh;
-    setSelection(elements: readonly NonDeletedExcalidrawElement[]): void;
-    private clearSelection;
-    private handleInteractiveCanvasRef;
-    private insertImages;
-    private handleAppOnDrop;
-    loadFileToCanvas: (file: File, fileHandle: FileSystemFileHandle | null) => Promise<void>;
-    private handleCanvasContextMenu;
-    private maybeDragNewGenericElement;
-    private maybeHandleCrop;
-    private maybeHandleResize;
-    private getContextMenuItems;
-    private handleWheel;
-    private getTextWysiwygSnappedToCenterPosition;
-    private savePointer;
-    private resetShouldCacheIgnoreZoomDebounced;
-    private updateDOMRect;
-    refresh: () => void;
-    private getCanvasOffsets;
-    watchState: () => void;
-    private updateLanguage;
+    getHighlightColor: (
+      sceneBackgroundColor: string,
+      opacity: number,
+    ) => string;
+  }>;
+
+  type ObsidianExcalidrawHostAdapter = Readonly<{
+    protocolVersion: 2;
+    isDoubleTapEraserEnabled: () => boolean;
+    isRightClickPanEnabled: () => boolean;
+    getZoomToFitMaxLevel: () => number;
+    isPenModeCrosshairVisible: () => boolean;
+    isSingleFingerPanningEnabled: () => boolean;
+    isDoubleClickTextEditingDisabled: () => boolean;
+    getZoomStep: () => number;
+    getZoomMin: () => number;
+    getZoomMax: () => number;
+    isContextMenuDisabled: () => boolean;
+    shouldSyncElementLinkWithText: () => boolean;
+    loadFontFromFile: (filename: string) => Promise<ArrayBuffer | undefined>;
+    getMermaid: () => Promise<MermaidToExcalidrawLibProps>;
+    runAction: (action: "anyFile" | "LaTeX" | "card") => void;
+    getLabel: (key: string) => string;
+    attachInlineLinkSuggester: (
+      inputEl: HTMLInputElement | HTMLTextAreaElement,
+      widthWrapper?: HTMLElement,
+      container?: HTMLDivElement | null,
+      suppressPlaceholder?: boolean,
+    ) => Readonly<{
+      isBlockingKeys: () => boolean;
+      close: () => void;
+    }>;
+  }>;
+
+  type ElementUpdate<TElement extends ExcalidrawElement> = Omit<
+    Partial<TElement>,
+    "id" | "updated"
+  >;
+
+  type ExportOpts = {
+    elements: readonly NonDeleted<ExcalidrawElement>[];
+    appState?: Partial<Omit<AppState, "offsetTop" | "offsetLeft">>;
+    files: BinaryFiles | null;
+    maxWidthOrHeight?: number;
+    exportingFrame?: ExcalidrawFrameLikeElement | null;
+    getDimensions?: (
+      width: number,
+      height: number,
+    ) => { width: number; height: number; scale?: number };
+  };
+
+  function restoreElements<T extends ExcalidrawElement>(
+    targetElements: readonly T[] | undefined | null,
+    /** used for additional context (e.g. repairing arrow bindings) */
+    existingElements: Readonly<ElementsMapOrArray> | null | undefined,
+    opts?: {
+      refreshDimensions?: boolean;
+      repairBindings?: boolean;
+      deleteInvisibleElements?: boolean;
+    },
+  ): CombineBrandsIfNeeded<T, OrderedExcalidrawElement>;
+
+  function restoreLibraryItems(
+    libraryItems: LibraryItems_anyVersion | undefined,
+    defaultStatus: LibraryItem["status"],
+  ): LibraryItem[];
+
+  function exportToSvg(
+    opts: Omit<ExportOpts, "getDimensions"> & {
+      elements: ExcalidrawElement[];
+      appState?: AppState;
+      files?: BinaryFiles | null;
+      exportPadding?: number;
+      exportingFrame: ExcalidrawFrameElement | null | undefined;
+      renderEmbeddables?: boolean;
+      skipInliningFonts?: boolean;
+    },
+  ): Promise<SVGSVGElement>;
+
+  function sceneCoordsToViewportCoords(
+    sceneCoords: { sceneX: number; sceneY: number },
+    viewParams: {
+      zoom: Zoom;
+      offsetLeft: number;
+      offsetTop: number;
+      scrollX: number;
+      scrollY: number;
+    },
+  ): { x: number; y: number };
+
+  function viewportCoordsToSceneCoords(
+    viewportCoords: { clientX: number; clientY: number },
+    viewParams: {
+      zoom: Zoom;
+      offsetLeft: number;
+      offsetTop: number;
+      scrollX: number;
+      scrollY: number;
+    },
+  ): { x: number; y: number };
+
+  function intersectElementWithLine(
+    element: ExcalidrawBindableElement,
+    a: GlobalPoint,
+    b: GlobalPoint,
+    gap?: number,
+  ): GlobalPoint[];
+
+  function getCommonBoundingBox(
+    elements:
+      | readonly ExcalidrawElement[]
+      | readonly NonDeleted<ExcalidrawElement>[],
+  ): BoundingBox;
+
+  function getContainerElement(
+    element: ExcalidrawTextElement | null,
+    elementsMap: ElementsMap,
+  ): ExcalidrawTextContainer | null;
+
+  function refreshTextDimensions(
+    textElement: ExcalidrawTextElement,
+    container: ExcalidrawTextContainer | null,
+    elementsMap: ElementsMap,
+    text: string,
+  ): {
+    text: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+
+  function getMaximumGroups(
+    elements: ExcalidrawElement[],
+    elementsMap: ElementsMap,
+  ): ExcalidrawElement[][];
+
+  function getFontMetrics(
+    fontFamily: ExcalidrawTextElement["fontFamily"],
+    fontSize?: number,
+  ): {
+    unitsPerEm: number;
+    ascender: number;
+    descender: number;
+    lineHeight: number;
+    baseline: number;
+    fontString: string;
+  };
+
+  function measureText(
+    text: string,
+    font: FontString,
+    lineHeight: number,
+  ): { width: number; height: number };
+
+  function getLineHeight(fontFamily: FontFamilyValues): number;
+  function wrapText(text: string, font: FontString, maxWidth: number): string;
+
+  function getFontString({
+    fontSize,
+    fontFamily,
+  }: {
+    fontSize: number;
+    fontFamily: FontFamilyValues;
+  }): FontString;
+
+  function getFontFamilyString({ fontFamily }: { fontFamily: number }): string;
+
+  function getBoundTextMaxWidth(container: ExcalidrawElement): number;
+
+  function exportToBlob(
+    opts: ExportOpts & {
+      mimeType?: string;
+      quality?: number;
+      exportPadding?: number;
+    },
+  ): Promise<Blob>;
+
+  function mutateElement<TElement extends Mutable<ExcalidrawElement>>(
+    element: TElement,
+    updates: ElementUpdate<TElement>,
+    informMutation?: boolean,
+  ): TElement;
+
+  function getEmbedLink(link: string | null | undefined): EmbeddedLink;
+
+  const mermaidToExcalidraw: typeof import("@zsviczian/excalidraw/types/excalidraw/components/TTDDialog/MermaidToExcalidrawLib").mermaidToExcalidraw;
+
+  /*function mermaidToExcalidraw(
+    mermaidDefinition: string,
+    opts: MermaidConfig,
+  ): Promise<{
+    elements?: ExcalidrawElement[];
+    files?: any;
+    error?: string;
+  } | undefined>;*/
+
+  let hashElementsVersion: typeof import("@zsviczian/excalidraw/types/excalidraw").hashElementsVersion;
+  let Excalidraw: typeof import("@zsviczian/excalidraw").Excalidraw;
+  let MainMenu: typeof import("@zsviczian/excalidraw").MainMenu;
+  let WelcomeScreen: typeof import("@zsviczian/excalidraw").WelcomeScreen;
+  let TTDDialogTrigger: typeof import("@zsviczian/excalidraw").TTDDialogTrigger;
+  let TTDDialog: typeof import("@zsviczian/excalidraw").TTDDialog;
+  let DiagramToCodePlugin: typeof import("@zsviczian/excalidraw").DiagramToCodePlugin;
+
+  function getDataURL(file: Blob | File): Promise<DataURL>;
+  const OBSIDIAN_COMMON_HOST_PROTOCOL_VERSION: 1;
+  function configureObsidianCommonHost(
+    adapter: ObsidianCommonHostAdapter,
+  ): () => void;
+  const OBSIDIAN_EXCALIDRAW_HOST_PROTOCOL_VERSION: 2;
+  function configureObsidianExcalidrawHost(
+    adapter: ObsidianExcalidrawHostAdapter,
+  ): () => void;
+  function registerLocalFont(fontMetrics: FontMetadata, uri: string): void;
+  function getFontFamilies(): string[];
+  function registerFontsInCSS(): Promise<void>;
+  function getCSSFontDefinition(fontFamily: number): Promise<string>;
+  function getTextFromElements(
+    elements: readonly ExcalidrawElement[],
+    separator?: string,
+  ): string;
+  function safelyParseJSON(json: string): JsonObject | null;
+  function loadSceneFonts(
+    elements: NonDeletedExcalidrawElement[],
+  ): Promise<void>;
+  function loadMermaid(): Promise<MermaidToExcalidrawLibProps>;
+  function syncInvalidIndices(
+    elements: readonly ExcalidrawElement[],
+  ): OrderedExcalidrawElement[];
+  function syncMovedIndices(
+    elements: readonly ExcalidrawElement[],
+    movedElements: ElementsMap,
+  ): OrderedExcalidrawElement[];
+  function getDefaultColorPalette(): [string, string, string, string, string][];
 }
-export default App;
+
+/* ******************************* */
+/* src/types/polybooljs.d.ts */
+/* ******************************* */
+declare module "polybooljs" {
+  interface PolyBoolStatic {
+    epsilon(value: number): void;
+    buildLog(value: boolean): void;
+  }
+
+  const PolyBool: PolyBoolStatic;
+  export default PolyBool;
+}
+
+/* ************************** */
+/* src/types/types.d.ts */
+/* ************************** */
+TFile,
+  View,
+  WorkspaceLeaf,
+  PluginManifest,
+  Hotkey,
+  TAbstractFile,
+  MenuItem,
+  Component,
+  EventRef,
+  WorkspaceContainer,
+  PluginSettingTab,
+} from "obsidian";
+import { ExcalidrawAutomate } from "../shared/ExcalidrawAutomate";
+import { ExcalidrawLib } from "./excalidrawLib";
+import type { PdfJsLibrary } from "./pdfJsTypes";
+
+type PolyBoolLibrary = {
+  epsilon(value: number): void;
+};
+
+type ObsidianInternalPluginInstance = {
+  openGlobalSearch?(query: string): void;
+  apiList?(): Promise<{
+    files?: Array<{
+      path: string;
+    }>;
+  }>;
+};
+
+type ObsidianInternalPlugin = {
+  _loaded?: boolean;
+  load?(): Promise<void>;
+  views?: {
+    canvas(leaf: WorkspaceLeaf): {
+      canvas: unknown;
+    };
+  };
+  instance?: ObsidianInternalPluginInstance;
+};
+
+type ObsidianInternalPluginsManager = {
+  plugins: Record<string, ObsidianInternalPlugin | undefined>;
+  getPluginById(id: string): ObsidianInternalPlugin | undefined;
+};
+
+type ObsidianSettingsManager = {
+  open(): void;
+  findTabById?(tabId: string): PluginSettingTab | null;
+  openTabById(tabId: string): void;
+  /**
+   * Resolves a settings-tab identifier and opens its declarative page path.
+   * This is an unpublished Obsidian 1.13+ API and may be absent or change
+   * without notice; callers must guard it at runtime.
+   */
+  openPagePath?(
+    tabId: string,
+    pagePath: string[],
+  ): PluginSettingTab | null;
+  /**
+   * Opens a declarative settings page for a resolved tab object and localized
+   * page-name path. This is an unpublished Obsidian 1.13+ API and may be
+   * absent or change without notice; callers must guard it at runtime.
+   */
+  navigateToPage?(tab: PluginSettingTab, pagePath: string[]): void;
+};
+
+type ObsidianViewRegistry = {
+  getViewTypeForFile?(file: TFile): string | null | undefined;
+  getViewTypeByFile?(file: TFile): string | null | undefined;
+  getTypeByFile?(file: TFile): string | null | undefined;
+  getViewTypeByExtension?(ext: string): string | null | undefined;
+  getTypeByExtension?(ext: string): string | null | undefined;
+};
+
+type MarkdownBlockNode = {
+  type: string;
+  id?: string;
+  depth?: number;
+  level?: number;
+  value?: string;
+  title?: string;
+  data?: {
+    hProperties?: {
+      dataHeading?: string;
+    };
+  };
+  children?: MarkdownBlockNode[];
+  position: {
+    start: {
+      offset: number;
+      line: number;
+    };
+    end: {
+      offset: number;
+    };
+  };
+};
+
+type ObsidianDragManager = {
+  draggable?: {
+    file?: TFile;
+    files?: TFile[];
+    title?: string;
+    type?: string;
+  };
+};
+
+type MarkdownBlockCacheEntry = {
+  display: string;
+  node: MarkdownBlockNode;
+};
+
+type MarkdownBlockCacheResult = {
+  blocks: MarkdownBlockCacheEntry[];
+};
+
+type BacklinksForFileResult = {
+  data: Record<string, import("obsidian").LinkCache[]>;
+};
+
+export type ObsidianCommand = {
+  id: string;
+  name: string;
+  icon?: string;
+  mobileOnly?: boolean;
+  repeatable?: boolean;
+};
+
+export type ObsidianCommandManager = {
+  listCommands(): ObsidianCommand[];
+  executeCommandById(commandId: string): boolean;
+  commands: Record<string, ObsidianCommand>;
+};
+
+export type ObsidianDraggable = {
+  type?: "file" | "files" | "link" | "text" | "unknown";
+  file?: TFile;
+  files?: TFile[];
+  title?: string;
+  [key: string]: unknown;
+};
+
+export type ConnectionPoint = "top" | "bottom" | "left" | "right" | null;
+
+export type Packages = {
+  react: typeof import("react");
+  reactDOM: typeof import("react-dom") & typeof import("react-dom/client");
+  excalidrawLib: typeof ExcalidrawLib | null;
+};
+
+/**
+ * An idempotent handle for the shared runtime acquired by one view.
+ *
+ * @remarks
+ * The captured window remains the view's acquisition window even if Obsidian
+ * reparents its DOM before teardown completes. All leases share the one package
+ * evaluated in the main application realm, so lifecycle code must use `window`
+ * for migration ownership and never infer package evaluation ownership from it.
+ */
+export type PackageLease = {
+  readonly window: Window;
+  readonly packages: Packages;
+  release(): void;
+};
+
+export type ValueOf<T> = T[keyof T];
+
+export type DynamicStyle = "none" | "gray" | "colorful";
+
+export type GridSettings = {
+  DYNAMIC_COLOR: boolean; // Whether the grid color is dynamic
+  COLOR: string; // The grid color (in hex format)
+  OPACITY: number; // The grid opacity (hex value between "00" and "FF")
+  GRID_DIRECTION: { horizontal: boolean; vertical: boolean }; // Whether the grid is horizontal or vertical
+};
+
+export type DeviceType = {
+  isDesktop: boolean;
+  isPhone: boolean;
+  isTablet: boolean;
+  isMobile: boolean;
+  isLinux: boolean;
+  isMacOS: boolean;
+  isWindows: boolean;
+  isIOS: boolean;
+  isAndroid: boolean;
+};
+
+export type Point = [number, number];
+
+export type LinkSuggestion = {
+  file: TFile;
+  path: string;
+  alias?: string;
+};
+
+export type LocalGraphView = View & {
+  file?: TFile;
+  loadFile?: (file: TFile) => void;
+};
+
+declare global {
+  interface Window {
+    ExcalidrawAutomate: ExcalidrawAutomate;
+    ExcalidrawLib: typeof ExcalidrawLib;
+    pdfjsLib: PdfJsLibrary;
+    unpackBase64Deflate?: (value: string) => string;
+    PolyBool?: PolyBoolLibrary;
+    electronWindow?: {
+      isAlwaysOnTop(): boolean;
+      setAlwaysOnTop(flag: boolean): void;
+    };
+    eval: (x: string) => unknown;
+    MathJax?: {
+      typesetPromise(elements: HTMLElement[]): Promise<void>;
+    };
+  }
+  interface File {
+    path?: string;
+  }
+}
+
+declare module "obsidian" {
+  interface App {
+    appId: string;
+    dragManager: ObsidianDragManager;
+    viewRegistry?: ObsidianViewRegistry;
+    internalPlugins: ObsidianInternalPluginsManager;
+    setting: ObsidianSettingsManager;
+    commands: ObsidianCommandManager;
+    isMobile(): boolean;
+    getAccentColor(): string;
+    getObsidianUrl(file: TFile): string;
+    metadataTypeManager: {
+      setType(name: string, type: string): void;
+    };
+    plugins: {
+      manifests: Record<string, PluginManifest>;
+      plugins: Record<string, (Plugin & { api?: unknown }) | undefined>;
+      enablePlugin(id: string): Promise<void>;
+      disablePlugin(id: string): Promise<void>;
+    };
+    hotkeyManager: {
+      addDefaultHotkeys(commandId: string, hotkeys: Hotkey[]): void;
+      
+    };
+  }
+  interface FileManager {
+    promptForFileRename(file: TFile): Promise<void>;
+  }
+  interface Vault {
+    getAbstractFileByPathInsensitive(path: string): TAbstractFile | null;
+    getConfig(name: string): unknown;
+  }
+  interface FileView {
+    _loaded: boolean;
+    headerEl: HTMLElement;
+  }
+  interface View {
+    file?: TFile;
+    canvas?: {
+      setReadonly(readonly: boolean): void;
+    };
+    modes?: Record<string, unknown>;
+    setMode?(mode: unknown): void;
+    viewer?: {
+      child?: {
+        pdfViewer?: {
+          page?: number;
+          setBackground?(color: string | null, isInverted: boolean): void;
+        };
+      };
+    };
+  }
+  interface TextFileView {
+    lastSavedData: string;
+  }
+  interface Menu {
+    items: MenuItem[];
+  }
+  interface Setting {
+    setVisibility(visible: boolean): Setting;
+  }
+  interface Modal {
+    containerEl: HTMLElement;
+    modalEl: HTMLElement;
+    bgEl: HTMLElement;
+    titleEl: HTMLElement;
+    headerEl: HTMLElement;
+    /**
+     * Whether to *dim* the background behind the modal. If {@link dimmed} is `true`, the
+     * opacity-value from [setBackgroundOpacity]{@link Modal#setBackgroundOpacity} or
+     * the default of `0.85` is used.
+     * @note The hidden backdrop will still catch focus.
+     */
+    setDimBackground(dimmed: boolean): Modal;
+    /** Sets the opacity of the Modal backdrop. */
+    setBackgroundOpacity(opacity: number): Modal;
+  }
+  interface Keymap {
+    getRootScope(): Scope;
+  }
+  interface Scope {
+    keys: Array<{
+      key?: string;
+      modifiers?: Array<"Mod" | "Ctrl" | "Meta" | "Shift" | "Alt">;
+    }>;
+  }
+  interface WorkspaceLeaf {
+    id: string;
+    containerEl: HTMLDivElement;
+    tabHeaderInnerTitleEl: HTMLDivElement;
+    tabHeaderInnerIconEl: HTMLDivElement;
+    isVisible?(): boolean;
+  }
+  interface WorkspaceWindowInitData {
+    x?: number;
+    y?: number;
+  }
+  interface WorkspaceTabs {
+    type?: string;
+    children?: unknown[];
+  }
+  interface WorkspaceMobileDrawer {
+    type?: string;
+    children?: unknown[];
+  }
+  interface Workspace {
+    floatingSplit?: WorkspaceSplit;
+    getAdjacentLeafInDirection(
+      leaf: WorkspaceLeaf,
+      direction: string,
+    ): WorkspaceLeaf;
+    on(
+      name: "hover-link",
+      callback: (e: MouseEvent) => boolean | void,
+      ctx?: Component,
+    ): EventRef;
+  }
+  interface WorkspaceSplit {
+    containerEl: HTMLDivElement;
+    children?: WorkspaceContainer[];
+  }
+  interface DataAdapter {
+    url: {
+      pathToFileURL(path: string): URL;
+    };
+    basePath: string;
+    fs: {
+      readFile(
+        path: string,
+        encoding: BufferEncoding,
+        callback: (err: NodeJS.ErrnoException | null, data: string) => void,
+      ): void;
+      readFile(
+        path: string,
+        callback: (err: NodeJS.ErrnoException | null, data: Buffer) => void,
+      ): void;
+    };
+  }
+  interface FoldPosition {
+    from: number;
+    to: number;
+  }
+
+  interface FoldInfo {
+    folds: FoldPosition[];
+    lines: number;
+  }
+
+  interface MarkdownSubView {
+    applyFoldInfo(foldInfo: FoldInfo): void;
+    getFoldInfo(): FoldInfo | null;
+  }
+  interface MarkdownPostProcessorContext {
+    remainingNestLevel: number;
+    containerEl: HTMLElement;
+  }
+  /*interface Editor {
+    insertText(data: string): void;
+  }*/
+  interface MetadataCache {
+    getLinkSuggestions?(): Array<{
+      alias?: string;
+      path: string;
+      file: TFile;
+    }>;
+    getBacklinksForFile(file: TFile): BacklinksForFileResult | null;
+    getLinks(): Record<string, import("obsidian").LinkCache[]>;
+    getCachedFiles(): string[];
+    blockCache: {
+      getForFile(
+        x: { isCancelled(): boolean },
+        f: TAbstractFile,
+      ): Promise<MarkdownBlockCacheResult>;
+    };
+  }
+
+  interface FuzzySuggestModal<T> {
+    chooser: {
+      values: Array<{ item: T }>;
+      selectedItem: number;
+    };
+  }
+
+  interface HoverPopover {
+    containerEl: HTMLElement;
+    embed?: {
+      editor?: unknown;
+    };
+    hide(): void;
+  }
+
+  interface Plugin {
+    _loaded: boolean;
+  }
+}
+
+/* *************************** */
+/* src/types/worker.d.ts */
+/* *************************** */
+declare module "web-worker:*" {
+  const WorkerFactory: new (options?: WorkerOptions) => Worker;
+  export default WorkerFactory;
+}
 
 ```
 
@@ -4438,7 +6572,7 @@ export declare const getCommonBoundingBox: (elements: readonly ExcalidrawElement
 /* ************************************** */
 /* @excalidraw/element/groups -> node_modules/@zsviczian/excalidraw/types/element/src/groups.d.ts */
 /* ************************************** */
-export declare const getMaximumGroups: (elements: ExcalidrawElement[], elementsMap: ElementsMap) => ExcalidrawElement[][];
+export declare const getMaximumGroups: <T extends NonDeletedExcalidrawElement | ExcalidrawElement>(elements: T[], elementsMap: ElementsMap) => T[][];
 
 /* ************************************** */
 /* @excalidraw/element/textMeasurements -> node_modules/@zsviczian/excalidraw/types/element/src/textMeasurements.d.ts */
@@ -4455,7 +6589,7 @@ export declare const wrapText: (text: string, font: FontString, maxWidth: number
 /* @excalidraw/element/textElement -> node_modules/@zsviczian/excalidraw/types/element/src/textElement.d.ts */
 /* ************************************** */
 export declare const getBoundTextMaxWidth: (container: ExcalidrawElement, boundTextElement: ExcalidrawTextElement | null) => number;
-export declare const getContainerElement: (element: ExcalidrawTextElement | null, elementsMap: ElementsMap) => ExcalidrawTextContainer | null;
+export declare const getContainerElement: <T extends ExcalidrawTextElement, R extends ExcalidrawTextContainer>(element: T | null, elementsMap: ElementsMap) => R | null;
 
 /* ************************************** */
 /* ./components/TTDDialog/MermaidToExcalidrawLib -> node_modules/@zsviczian/excalidraw/types/excalidraw/components/TTDDialog/MermaidToExcalidrawLib.d.ts */
@@ -4577,21 +6711,20 @@ export declare const TTDDialog: {
 /* ************************************** */
 /* ./components/TTDDialog/utils/TTDStreamFetch -> node_modules/@zsviczian/excalidraw/types/excalidraw/components/TTDDialog/utils/TTDStreamFetch.d.ts */
 /* ************************************** */
+export declare function parseSSEStream(reader: ReadableStreamDefaultReader<Uint8Array>): AsyncGenerator<string, void, unknown>;
 export declare function TTDStreamFetch(options: StreamingOptions): Promise<TTTDDialog.OnTextSubmitRetValue>;
 
 /* ************************************** */
-/* ./actions/actionCanvas -> node_modules/@zsviczian/excalidraw/types/excalidraw/actions/actionCanvas.d.ts */
+/* ./viewport -> node_modules/@zsviczian/excalidraw/types/excalidraw/viewport.d.ts */
 /* ************************************** */
-export declare const zoomToFitBounds: ({ bounds, appState, canvasOffsets, fitToViewport, viewportZoomFactor, minZoom, maxZoom, }: {
+export declare const zoomToFitBounds: ({ bounds, appState, canvasOffsets, fit, minZoom, maxZoom, steppedZoom, }: {
     bounds: SceneBounds;
     canvasOffsets?: Offsets;
     appState: Readonly<AppState>;
-    /** whether to fit content to viewport (beyond >100%) */
-    fitToViewport: boolean;
-    /** zoom content to cover X of the viewport, when fitToViewport=true */
-    viewportZoomFactor?: number;
+    fit?: SetViewportOptions["fit"];
     minZoom?: number;
     maxZoom?: number;
+    steppedZoom?: boolean;
 }) => {
     appState: {
         scrollX: number;
@@ -4608,6 +6741,38 @@ export declare const DiagramToCodePlugin: (props: {
 /* ************************************** */
 export declare const CommandPalette: ((props: CommandPaletteProps) => import("react/jsx-runtime").JSX.Element | null) & {
     defaultItems: typeof defaultItems;
+
+/* ************************************** */
+/* ./obsidianExcalidrawHost -> node_modules/@zsviczian/excalidraw/types/excalidraw/obsidianExcalidrawHost.d.ts */
+/* ************************************** */
+export declare const OBSIDIAN_EXCALIDRAW_HOST_PROTOCOL_VERSION: 2;
+/** Keyboard-blocking lifecycle returned by the host's inline suggester. */
+export interface ObsidianKeyBlocker {
+    isBlockingKeys(): boolean;
+    close(): void;
+}
+/** Plugin-wide capabilities consumed by the Excalidraw package. */
+export interface ObsidianExcalidrawHostAdapter {
+    readonly protocolVersion: typeof OBSIDIAN_EXCALIDRAW_HOST_PROTOCOL_VERSION;
+    isDoubleTapEraserEnabled(): boolean;
+    isRightClickPanEnabled(): boolean;
+    getZoomToFitMaxLevel(): number;
+    isPenModeCrosshairVisible(): boolean;
+    isSingleFingerPanningEnabled(): boolean;
+    isDoubleClickTextEditingDisabled(): boolean;
+    getZoomStep(): number;
+    getZoomMin(): number;
+    getZoomMax(): number;
+    isContextMenuDisabled(): boolean;
+    shouldSyncElementLinkWithText(): boolean;
+    loadFontFromFile(filename: string): Promise<ArrayBuffer | undefined>;
+    getMermaid(): Promise<MermaidToExcalidrawLibProps>;
+    runAction(action: "anyFile" | "LaTeX" | "card"): void;
+    getLabel(key: string): string;
+    attachInlineLinkSuggester(inputEl: HTMLInputElement | HTMLTextAreaElement, widthWrapper?: HTMLElement, container?: HTMLDivElement | null, suppressPlaceholder?: boolean): ObsidianKeyBlocker;
+}
+/** Idempotent cleanup returned when a package host is configured. */
+export type ObsidianExcalidrawHostDisposer = () => void;
 ```
 
 ---
@@ -4626,7 +6791,7 @@ Content structure:
 2. The curated script overview (index-new.md)
 3. Raw source of every *.md script in /ea-scripts (each fenced code block is auto-closed to ensure well-formed aggregation)
 
-Generated on: 2026-07-12T12:50:29.769Z
+Generated on: 2026-09-06T09:39:09.074Z
 
 ---
 
@@ -4734,6 +6899,7 @@ These are the scripts I use most often. I tried to order them by importance, but
 |<div><img src="https://raw.githubusercontent.com/zsviczian/obsidian-excalidraw-plugin/master/ea-scripts/Mindmap%20Builder.svg"/></div>|[[#Mindmap Builder]]|
 |<div><img src="https://raw.githubusercontent.com/zsviczian/obsidian-excalidraw-plugin/master/ea-scripts/Mindmap%20format.svg"/></div>|[[#Mindmap format]]|
 |<div><img src="https://raw.githubusercontent.com/zsviczian/obsidian-excalidraw-plugin/master/ea-scripts/Printable%20Layout%20Wizard.svg"/></div>|[[#Printable Layout Wizard]]|
+|<div><img src="https://raw.githubusercontent.com/zsviczian/obsidian-excalidraw-plugin/master/ea-scripts/VoronoiDiagramGenerator.svg"/></div>|[[#Voronoi Diagram Generator]]|
 |<div><img src="https://raw.githubusercontent.com/zsviczian/obsidian-excalidraw-plugin/master/ea-scripts/Zoom%20to%20Fit%20Selected%20Elements.svg"/></div>|[[#Zoom to Fit Selected Elements]]|
 
 ## Connectors and Arrows
@@ -5370,6 +7536,23 @@ https://raw.githubusercontent.com/zsviczian/obsidian-excalidraw-plugin/master/ea
 ```
 <table><tr valign='top'><td class="label">Author</td><td class="data"><a href='https://github.com/zsviczian'>@zsviczian</a></td></tr><tr valign='top'><td class="label">Source</td><td class="data"><a href='https://github.com/zsviczian/obsidian-excalidraw-plugin/blob/master/ea-scripts/Printable%20Layout%20Wizard.md'>File on GitHub</a></td></tr><tr valign='top'><td class="label">Description</td><td class="data">Export Excalidraw to PDF Pages: Define printable page areas using frames, then export each frame as a separate page in a multi-page PDF. Perfect for turning your Excalidraw drawings into printable notes, handouts, or booklets. Supports standard and custom page sizes, margins, and easy frame arrangement.<br><a href="YouTube: 29EWeglRm7s" target="_blank"><img src ="https://i.ytimg.com/vi/29EWeglRm7s/maxresdefault.jpg" style="width:400px;"></a><br><a href='YouTube: 29EWeglRm7s' target='_blank'>Link to video on YouTube</a><br><a href="YouTube: DqDnzCOoYMc" target="_blank"><img src ="https://i.ytimg.com/vi/DqDnzCOoYMc/maxresdefault.jpg" style="width:400px;"></a><br><a href='YouTube: DqDnzCOoYMc' target='_blank'>Link to video on YouTube</a><br><img src="https://raw.githubusercontent.com/zsviczian/obsidian-excalidraw-plugin/master/images/scripts-layout-wizard-01.png" style="max-width: 400px;"><br><img src="https://raw.githubusercontent.com/zsviczian/obsidian-excalidraw-plugin/master/images/scripts-layout-wizard-02.png" style="max-width: 400px;"></td></tr></table>
 
+## Voronoi Diagram Generator
+```excalidraw-script-install
+https://raw.githubusercontent.com/zsviczian/obsidian-excalidraw-plugin/master/ea-scripts/VoronoiDiagramGenerator.md
+```
+<table><tr  valign='top'><td class="label">Author</td><td class="data"><a href='https://github.com/FreeCutter'>@FreeCutter</a></td></tr><tr valign='top'><td class="label">Source</td><td class="data"><a href='https://github.com/zsviczian/obsidian-excalidraw-plugin/blob/master/ea-scripts/VoronoiDiagramGenerator.md'>File on GitHub</a></td></tr><tr valign='top'><td class="label">Description</td><td class="data">This script generates a Voronoi diagram from selected elements on the drawing canvas.
+
+The following parameters can be set in 'Voronoi Settings' window pop-up once the script is started:
+- Frame width (default: 100)
+- Roughness (default: 0)
+- Stroke width (default: 2)
+- Grouping (default: checked)
+
+Setting parameters could be set back to default values by click on button 'Default'.
+
+See background information about [Voronoi diagram](https://en.wikipedia.org/wiki/Voronoi_diagram) at Wikipedia. 
+
+Comments and discussion are welcomed in the [Sketch Your Mind Community](https://community.sketch-your-mind.com)<br><img src='https://raw.githubusercontent.com/zsviczian/obsidian-excalidraw-plugin/master/images/Voronoi_diagram_example.svg'></td></tr></table>
 
 ## Zoom to Fit Selected Elements
 ```excalidraw-script-install
@@ -5412,6 +7595,7 @@ elements.forEach((el)=>{
   ea.addToGroup([el.id,ellipseId]);
 });
 await ea.addElementsToView(false,false,true);
+
 ```
 
 ---
@@ -5484,6 +7668,7 @@ if(openInCurrentPane) {
   return;
 }
 ea.openFileInNewOrAdjacentLeaf(file);
+
 ```
 
 ---
@@ -5581,6 +7766,7 @@ if(openInCurrentPane) {
   return;
 }
 ea.openFileInNewOrAdjacentLeaf(file);
+
 ```
 
 ---
@@ -6516,6 +8702,7 @@ function applyTranformationMatrix(vectors, transformationMatrix) {
 
   return result;
 }
+
 ```
 
 ---
@@ -6704,6 +8891,7 @@ function recalculateEndPointOfLine(line, el) {
     	line.points[line.points.length - 1] = [intersectA[0][0] - line.x, intersectA[0][1] - line.y];
 	}
 }
+
 ```
 
 ---
@@ -9776,6 +11964,7 @@ if (elements.length>0) {
 ea.copyViewElementsToEAforEditing(editedElements);
 
 ea.addElementsToView(false,false);
+
 ```
 
 ---
@@ -11950,6 +14139,7 @@ async function main() {
 
 // Execute Script
 main();
+
 ```
 
 ---
@@ -12440,6 +14630,7 @@ if(element.type === 'arrow') {
 	appState.currentItemStartArrowhead = element.startArrowhead;
 	appState.currentItemEndArrowhead = element.endArrowhead;
 }
+
 ```
 
 ---
@@ -12468,6 +14659,7 @@ const fname = await utils.inputPrompt("Filename for new file","Filename",folder)
 const file = await app.fileManager.createAndOpenMarkdownFile(fname,true);
 await ea.addImage(0,0,file);
 ea.addElementsToView(true,true);
+
 ```
 
 ---
@@ -12631,6 +14823,7 @@ for (const el of ea.getElements()) {
   }
 }
 await ea.addElementsToView(false, false);
+
 ```
 
 ---
@@ -12639,336 +14832,579 @@ await ea.addElementsToView(false, false);
 <!-- Source: ea-scripts/Deconstruct selected elements into new drawing.md -->
 
 /*
+# Deconstruct Selected Elements Into New Drawing
+
 ![](https://raw.githubusercontent.com/zsviczian/obsidian-excalidraw-plugin/master/images/scripts-deconstruct.jpg)
 
-Select some elements in the scene. The script will take these elements and move them into a new Excalidraw file, and open that file. The selected elements will also be replaced in your original drawing with the embedded Excalidraw file (the one that was just created). You will be prompted for the file name of the new deconstructed image. The script is useful if you want to break a larger drawing into smaller reusable parts that you want to reference in multiple drawings.
+Select elements in the current Excalidraw scene. The script moves the selected elements into a new Excalidraw file, replaces the original selection with an embedded reference to that new drawing, and optionally opens the new file.
 
-<a href="YouTube: HRtaaD34Zzg" target="_blank"><img src ="https://i.ytimg.com/vi/HRtaaD34Zzg/maxresdefault.jpg" style="width:560px;"></a>
+The modal lets you choose the destination folder, filename, template, whether to open the new drawing, whether to reuse an adjacent tab, and whether the inserted embed should be anchored at 100% size.
 
-<a href="YouTube: mvMQcz401yo" target="_blank"><img src ="https://i.ytimg.com/vi/mvMQcz401yo/maxresdefault.jpg" style="width:560px;"></a>
+Destination names are validated before creation. Filenames reject path separators and characters that are invalid or unsafe across common vault platforms (`\\ / : * ? " < > |` and control characters). Folder paths use `/` only as the path separator and validate each folder name independently.
 
-```js
+## Usage
+
+1. Select one or more elements in an Excalidraw drawing.
+2. Run **Deconstruct Selected Elements Into New Drawing**.
+3. Choose the destination folder, file name, and optional template.
+4. Choose **Insert** or **Insert @100%**.
+
+The default filename and additional template paths can be configured through the script settings.
+
+## Original demonstrations
+
+![](YouTube: HRtaaD34Zzg)
+![](YouTube: mvMQcz401yo)
+
+Build version: 2026-09-04T17:17:37.900Z
+
+```javascript
 */
 
-if(!ea.verifyMinimumPluginVersion || !ea.verifyMinimumPluginVersion("2.7.3")) {
-  new Notice("This script requires a newer version of Excalidraw. Please install the latest version.");
-  return;
-}
-
-// -------------------------------
-// Utility variables and functions
-// -------------------------------
-const excalidrawTemplates = ea.getListOfTemplateFiles();
-if(typeof window.ExcalidrawDeconstructElements === "undefined") {
-  window.ExcalidrawDeconstructElements = {
-    openDeconstructedImage: true,
-    reuseTab: true,
-    templatePath: excalidrawTemplates?.[0]?.path??""
-  };
-} else if (typeof window.ExcalidrawDeconstructElements.reuseTab === "undefined") {
-  window.ExcalidrawDeconstructElements.reuseTab = true;
-}
-
-// Helper class for Folder Autocomplete
-class FolderSuggest extends ea.obsidian.AbstractInputSuggest {
-  constructor(app, inputEl) {
-    super(app, inputEl);
-    this.inputEl = inputEl;
+// Script bundle
+/* EA Script — deconstruct-selected-elements-into-new-drawing | ea-scripts v1.0.0 */
+(() => {
+  // src/sharedUtils/i18n.ts
+  function interpolateTranslation(template, params = {}) {
+    return Object.entries(params).reduce(
+      (result, [key, value]) => result.split(`{${key}}`).join(String(value)),
+      template
+    );
   }
-
-  getSuggestions(query) {
-    const folders = app.vault.getAllLoadedFiles().filter(f => f instanceof ea.obsidian.TFolder);
-    const lowerQuery = query.toLowerCase();
-    
-    // Filter folders that match the query
-    const matches = folders.filter(f => f.path.toLowerCase().includes(lowerQuery));
-    
-    // Custom Sort
-    matches.sort((a, b) => {
-        const aPath = a.path;
-        const bPath = b.path;
-        const aLower = aPath.toLowerCase();
-        const bLower = bPath.toLowerCase();
-        
-        // Priority 1: Starts with query (e.g. "Projects" comes before "Hobbies/Projects")
-        const aStarts = aLower.startsWith(lowerQuery);
-        const bStarts = bLower.startsWith(lowerQuery);
-        
-        if (aStarts && !bStarts) return -1;
-        if (!aStarts && bStarts) return 1;
-        
-        // Priority 2: Alphabetical
-        return aPath.localeCompare(bPath);
-    });
-    
-    return matches.map(f => f.path);
-  }
-
-  renderSuggestion(value, el) {
-    el.setText(value);
-  }
-
-  selectSuggestion(value, evt) {
-      this.inputEl.value = value;
-      this.inputEl.dispatchEvent(new Event('input'));
-      this.close();
-  }
-}
-
-let settings = ea.getScriptSettings();
-//set default values on first run
-if(!settings["Templates"]) {
-  settings = {
-    "Templates" : {
-      value: "",
-      description: "Comma-separated list of template filepaths"
-    }
-  };
-  await ea.setScriptSettings(settings);
-}
-
-if(!settings["Default file name"]) {
-  settings["Default file name"] = {
-    value: "deconstructed",
-    description: "The default filename to use when deconstructing elements."
-  };
-  await ea.setScriptSettings(settings);
-}
-
-const DEFAULT_FILENAME = settings["Default file name"].value;
-
-const templates = settings["Templates"]
-  .value
-  .split(",")
-  .map(p=>app.metadataCache.getFirstLinkpathDest(p.trim(),""))
-  .concat(excalidrawTemplates)
-  .filter(f=>Boolean(f))
-  .sort((a,b) => a.basename.localeCompare(b.basename));
-
-
-// ------------------------------------
-// Prepare elements to be deconstructed
-// ------------------------------------
-const els = ea.getViewSelectedElements();
-if (els.length === 0) {
-  new Notice("You must select elements first")
-  return;
-}
-
-const bb = ea.getBoundingBox(els);
-ea.copyViewElementsToEAforEditing(els);
-
-// Handle Image elements logic from original script
-ea.getElements().filter(el=>el.type==="image").forEach(el=>{
-  const img = ea.targetView.excalidrawData.getFile(el.fileId);
-  const path = (img?.linkParts?.original)??(img?.file?.path);
-  const hyperlink = img?.hyperlink;
-  if(img && (path || hyperlink)) {
-    const colorMap = ea.getColorMapForImageElement(el);
-    ea.imagesDict[el.fileId] = {
-      mimeType: img.mimeType,
-      id: el.fileId,
-      dataURL: img.img,
-      created: img.mtime,
-      file: path,
-      hyperlink,
-      hasSVGwithBitmap: img.isSVGwithBitmap,
-      latex: null,
-      colorMap,
+  function createTranslator(requestedLocale, catalogs, fallbackLocale = "en") {
+    const locale = requestedLocale.toLowerCase().replaceAll("_", "-");
+    const baseLocale = locale.split("-")[0] ?? locale;
+    return (key, params = {}) => {
+      const template = catalogs[locale]?.[key] ?? catalogs[baseLocale]?.[key] ?? catalogs[fallbackLocale]?.[key] ?? key;
+      return interpolateTranslation(template, params);
     };
-    return;
   }
-  const equation = ea.targetView.excalidrawData.getEquation(el.fileId);
-  const eqImg = ea.targetView.getScene()?.files[el.fileId]
-  if(equation && eqImg) {
-    ea.imagesDict[el.fileId] = {
-      mimeType: eqImg.mimeType,
-      id: el.fileId,
-      dataURL: eqImg.dataURL,
-      created: eqImg.created,
+
+  // src/scripts/deconstruct-selected-elements-into-new-drawing/lang/de.ts
+  var de = {};
+
+  // src/scripts/deconstruct-selected-elements-into-new-drawing/lang/en.ts
+  var en = {
+    requiresNewerVersion: "This script requires Excalidraw 2.27.0 or newer. Please install the latest version.",
+    selectElements: "You must select elements first.",
+    templatesSettingDesc: "Comma-separated list of template filepaths",
+    defaultFilenameSettingDesc: "The default filename to use when deconstructing elements.",
+    modalTitle: "Deconstruct Elements",
+    folderPath: "Folder path",
+    fileName: "File name",
+    selectTemplate: "Select template",
+    noTemplate: "none",
+    openDeconstructedImage: "Open deconstructed image",
+    reuseExistingTab: "Reuse existing tab",
+    reuseExistingTabDesc: "If available, open in an adjacent tab. Otherwise open in a new tab.",
+    insert: "Insert",
+    insertTooltip: "Insert without anchoring",
+    insertAt100: "Insert @100%",
+    insertAt100Tooltip: "Anchor to 100% size",
+    filenameRequired: "Filename is required.",
+    invalidFilenameCharacter: 'File name contains an invalid character: "{character}".',
+    invalidFolderCharacter: 'Folder path contains an invalid character: "{character}".',
+    invalidFilename: 'Invalid file name: "{name}".',
+    invalidFolderPath: 'Invalid folder path near: "{name}".',
+    somethingWentWrong: "Something went wrong while creating the deconstructed drawing.",
+    deconstructionReady: "Deconstruction ready."
+  };
+
+  // src/scripts/deconstruct-selected-elements-into-new-drawing/lang/es.ts
+  var es = {};
+
+  // src/scripts/deconstruct-selected-elements-into-new-drawing/lang/fr.ts
+  var fr = {};
+
+  // src/scripts/deconstruct-selected-elements-into-new-drawing/lang/ru.ts
+  var ru = {};
+
+  // src/scripts/deconstruct-selected-elements-into-new-drawing/lang/zh-cn.ts
+  var zhCn = {};
+
+  // src/scripts/deconstruct-selected-elements-into-new-drawing/lang/index.ts
+  var CATALOGS = { en, de, es, fr, ru, "zh-cn": zhCn };
+  function createDeconstructTranslator(locale) {
+    return createTranslator(locale, CATALOGS);
+  }
+
+  // src/sharedUtils/eaEmbeddedFiles.ts
+  function copyImageFile(ea2, element, fileId) {
+    const view = ea2.targetView;
+    if (!view) return false;
+    const image = view.excalidrawData.getFile(fileId);
+    const filePath = image?.linkParts?.original ?? image?.file?.path;
+    const hyperlink = image?.hyperlink;
+    if (!image || !filePath && !hyperlink) return false;
+    ea2.imagesDict[fileId] = {
+      mimeType: image.mimeType,
+      id: fileId,
+      dataURL: image.img,
+      created: image.mtime,
+      file: filePath,
+      hyperlink,
+      hasSVGwithBitmap: image.isSVGwithBitmap,
+      latex: null,
+      colorMap: ea2.getColorMapForImageElement(element)
+    };
+    return true;
+  }
+  function copyEquationFile(ea2, element, fileId) {
+    const view = ea2.targetView;
+    if (!view) return;
+    const equation = view.excalidrawData.getEquation(fileId);
+    const sceneFile = view.getScene()?.files[fileId];
+    if (!equation || !sceneFile) return;
+    ea2.imagesDict[fileId] = {
+      mimeType: sceneFile.mimeType,
+      id: fileId,
+      dataURL: sceneFile.dataURL,
+      created: sceneFile.created,
       file: null,
       hasSVGwithBitmap: null,
-      latex: equation.latex,
+      latex: equation.latex
     };
-    return;
   }
-});
-
-
-// ----------------------
-// Execution Logic
-// ----------------------
-const executeDeconstruction = async (folderPath, fileName, shouldAnchor) => {
-  // Ensure filename has extension
-  if (!fileName.endsWith(".md")) fileName += ".md";
-  
-  // Construct full path
-  // normalizePath handles cases where folderPath might be empty or root
-  const fullPath = ea.obsidian.normalizePath(`${folderPath}/${fileName}`);
-  
-  // Separate back into folder and filename for ea.create
-  const pathParts = fullPath.split("/");
-  const finalFileName = pathParts.pop();
-  const finalFolderName = pathParts.join("/");
-
-  // We use silent: true to prevent ea.create from opening the file automatically.
-  // We handle opening manually based on user preference.
-  const newPath = await ea.create ({
-    filename: finalFileName,
-    foldername: finalFolderName,
-    templatePath: window.ExcalidrawDeconstructElements.templatePath,
-    onNewPane: true, 
-    silent: true
-  });
-
-  let f = app.vault.getAbstractFileByPath(newPath);
-  let counter = 0;
-  while((!f || !ea.isExcalidrawFile(f)) && counter++<100) {
-    await sleep(50);
-    f = app.vault.getAbstractFileByPath(newPath);
-  }
-
-  if(!f || !ea.isExcalidrawFile(f)) {
-    new Notice("Something went wrong");
-    return;
-  }
-
-  let padding = parseFloat(app.metadataCache.getCache(f.path)?.frontmatter["excalidraw-export-padding"]);
-  if(isNaN(padding)) {
-    padding = ea.plugin.settings.exportPaddingSVG;
-  }
-
-  // Remove elements from current view and replace with image of new file
-  ea.getElements().forEach(el=>el.isDeleted = true);
-  await ea.addImage(bb.topX-padding, bb.topY-padding, f, false, shouldAnchor);
-  await ea.addElementsToView(false, true, true);
-  ea.getExcalidrawAPI().history.clear();
-  
-  if(window.ExcalidrawDeconstructElements.openDeconstructedImage) {
-    const reuse = window.ExcalidrawDeconstructElements.reuseTab;
-    if (reuse) {
-      ea.openFileInNewOrAdjacentLeaf(f);
-    } else {
-      // Force new tab
-      await app.workspace.getLeaf('tab').openFile(f);
+  function copyEmbeddedFilesToEa(ea2, elements) {
+    for (const element of elements) {
+      if (element.type !== "image" || !element.fileId) continue;
+      if (!copyImageFile(ea2, element, element.fileId)) {
+        copyEquationFile(ea2, element, element.fileId);
+      }
     }
-  } else {
-    new Notice("Deconstruction ready");
   }
-};
 
-
-// ----------------------
-// Floating Modal UI
-// ----------------------
-
-const modal = new ea.FloatingModal(ea.plugin.app);
-modal.titleEl.setText("Deconstruct Elements");
-
-modal.onOpen = () => {
-  const content = modal.contentEl;
-  content.empty();
-  
-  // -- Folder Path Input --
-  const folderDiv = content.createDiv({ cls: "setting-item" });
-  folderDiv.createDiv({ cls: "setting-item-info" }).createEl("label", { text: "Folder path" });
-  const folderControl = folderDiv.createDiv({ cls: "setting-item-control" });
-  const folderInput = new ea.obsidian.TextComponent(folderControl);
-  
-  // Set default folder to current file's parent
-  const currentFolder = ea.targetView.file.parent.path;
-  folderInput.setValue(currentFolder);
-  folderInput.inputEl.style.width = "100%";
-  
-  // Attach Autocomplete
-  new FolderSuggest(ea.plugin.app, folderInput.inputEl);
-
-  // -- Filename Input --
-  const fileDiv = content.createDiv({ cls: "setting-item" });
-  fileDiv.createDiv({ cls: "setting-item-info" }).createEl("label", { text: "File name" });
-  const fileControl = fileDiv.createDiv({ cls: "setting-item-control" });
-  const fileInput = new ea.obsidian.TextComponent(fileControl);
-  fileInput.setValue(DEFAULT_FILENAME);
-  fileInput.inputEl.style.width = "100%";
-  
-  // Set focus to file input
-  setTimeout(() => fileInput.inputEl.focus(), 50);
-
-  // -- Template Dropdown --
-  new ea.obsidian.Setting(content)
-    .setName(`Select template`)
-    .addDropdown(dropdown => {
-      templates.forEach(file => dropdown.addOption(file.path, file.basename));
-      if(templates.length === 0) dropdown.addOption(null, "none");
-      dropdown
-        .setValue(window.ExcalidrawDeconstructElements.templatePath)
-        .onChange(value => {
-           window.ExcalidrawDeconstructElements.templatePath = value;
-        })
+  // src/sharedUtils/vaultPaths.ts
+  var INVALID_FILE_NAME_CHARACTER = /[\\/:*?"<>|\u0000-\u001F]/u;
+  var INVALID_FOLDER_SEGMENT_CHARACTER = /[\\:*?"<>|\u0000-\u001F]/u;
+  var WINDOWS_RESERVED_NAME = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/iu;
+  function isVaultRootFolderPath(folderPath) {
+    return folderPath === "" || folderPath === "/";
+  }
+  function firstInvalidCharacter(value, pattern) {
+    return value.match(pattern)?.[0] ?? null;
+  }
+  function validateSegment(segment, invalidCharacterPattern, allowEmpty) {
+    if (!segment) {
+      return allowEmpty ? { valid: true } : { valid: false, reason: "empty", segment };
+    }
+    if (segment === "." || segment === "..") {
+      return { valid: false, reason: "dot-segment", segment };
+    }
+    const invalidCharacter = firstInvalidCharacter(segment, invalidCharacterPattern);
+    if (invalidCharacter !== null) {
+      return {
+        valid: false,
+        reason: "invalid-character",
+        segment,
+        character: invalidCharacter
+      };
+    }
+    if (WINDOWS_RESERVED_NAME.test(segment)) {
+      return { valid: false, reason: "reserved-name", segment };
+    }
+    if (/[. ]$/u.test(segment)) {
+      return { valid: false, reason: "trailing-dot-or-space", segment };
+    }
+    return { valid: true };
+  }
+  function validateVaultFileName(fileName) {
+    return validateSegment(fileName, INVALID_FILE_NAME_CHARACTER, false);
+  }
+  function validateVaultFolderPath(folderPath) {
+    if (isVaultRootFolderPath(folderPath)) return { valid: true };
+    if (folderPath.startsWith("/") || folderPath.endsWith("/") || folderPath.includes("//")) {
+      return { valid: false, reason: "invalid-path-shape", segment: folderPath };
+    }
+    for (const segment of folderPath.split("/")) {
+      const result = validateSegment(segment, INVALID_FOLDER_SEGMENT_CHARACTER, false);
+      if (!result.valid) return result;
+    }
+    return { valid: true };
+  }
+  function getUniqueVaultFilePath(folderPath, fileName, pathExists) {
+    const resolvedFolderPath = isVaultRootFolderPath(folderPath) ? "" : folderPath;
+    const lastDot = fileName.lastIndexOf(".");
+    const hasExtension = lastDot > 0;
+    const stem = hasExtension ? fileName.slice(0, lastDot) : fileName;
+    const extension = hasExtension ? fileName.slice(lastDot) : "";
+    const joinPath = (name) => resolvedFolderPath ? `${resolvedFolderPath}/${name}` : name;
+    let candidate = joinPath(fileName);
+    let suffix = 1;
+    while (pathExists(candidate)) {
+      candidate = joinPath(`${stem} ${suffix}${extension}`);
+      suffix += 1;
+    }
+    return candidate;
+  }
+  function formatVaultInvalidCharacter(character) {
+    const codePoint = character.codePointAt(0);
+    if (codePoint === void 0 || codePoint >= 32) return character;
+    return `U+${codePoint.toString(16).toUpperCase().padStart(4, "0")}`;
+  }
+  function rankVaultFolderSuggestions(folderPaths, query) {
+    const lowerQuery = query.toLowerCase();
+    return [...new Set(folderPaths)].filter((path) => path.toLowerCase().includes(lowerQuery)).sort((left, right) => {
+      const leftStarts = left.toLowerCase().startsWith(lowerQuery);
+      const rightStarts = right.toLowerCase().startsWith(lowerQuery);
+      if (leftStarts !== rightStarts) return leftStarts ? -1 : 1;
+      return left.localeCompare(right);
     });
+  }
 
-  // -- Open Toggle --
-  new ea.obsidian.Setting(content)
-    .setName(`Open deconstructed image`)
-    .addToggle((toggle) => toggle
-      .setValue(window.ExcalidrawDeconstructElements.openDeconstructedImage)
-      .onChange(value => {
-        window.ExcalidrawDeconstructElements.openDeconstructedImage = value;
-        // Update visibility of the sub-toggle
-        reuseSetting.settingEl.style.display = value ? "" : "none";
+  // src/sharedUtils/windowTiming.ts
+  function sleepInWindow(ownerWindow, milliseconds) {
+    return new Promise((resolve) => ownerWindow.setTimeout(resolve, milliseconds));
+  }
+
+  // src/scripts/deconstruct-selected-elements-into-new-drawing/deconstruction.ts
+  async function waitForVaultFile(ea2, app2, path, ownerWindow) {
+    for (let attempt = 0; attempt <= 100; attempt += 1) {
+      const file = app2.vault.getAbstractFileByPath(path);
+      if (file instanceof ea2.obsidian.TFile) {
+        return file;
+      }
+      if (attempt < 100) await sleepInWindow(ownerWindow, 50);
+    }
+    return null;
+  }
+  async function waitForDrawingFile(ea2, app2, path, ownerWindow) {
+    for (let attempt = 0; attempt <= 100; attempt += 1) {
+      const file = app2.vault.getAbstractFileByPath(path);
+      if (file instanceof ea2.obsidian.TFile && ea2.isExcalidrawFile(file)) {
+        return file;
+      }
+      if (attempt < 100) await sleepInWindow(ownerWindow, 50);
+    }
+    return null;
+  }
+  function getExportPadding(ea2, app2, file) {
+    const rawPadding = app2.metadataCache.getCache(file.path)?.frontmatter?.["excalidraw-export-padding"];
+    const parsedPadding = Number.parseFloat(String(rawPadding));
+    return Number.isNaN(parsedPadding) ? ea2.plugin.settings.exportPaddingSVG : parsedPadding;
+  }
+  async function replaceSelectionWithEmbed(context, file, padding, shouldAnchor) {
+    const { ea: ea2, bounds } = context;
+    for (const element of ea2.getElements()) {
+      element.isDeleted = true;
+    }
+    await ea2.addImage(bounds.topX - padding, bounds.topY - padding, file, false, shouldAnchor);
+    await ea2.addElementsToView(false, true, true);
+    ea2.getExcalidrawAPI()?.history.clear();
+  }
+  async function openCreatedDrawing(context, file) {
+    const { ea: ea2, app: app2, uiState } = context;
+    if (!uiState.openDeconstructedImage) return;
+    if (uiState.reuseTab) {
+      ea2.openFileInNewOrAdjacentLeaf(file);
+      return;
+    }
+    await app2.workspace.getLeaf("tab").openFile(file);
+  }
+  function isVaultRootFilePath(path) {
+    return path.length > 0 && !path.includes("/");
+  }
+  async function createDrawingAtDestination(context, destination) {
+    const { ea: ea2, app: app2, uiState, ownerWindow } = context;
+    const requestedVaultRoot = isVaultRootFolderPath(destination.folderPath);
+    const intendedRootPath = requestedVaultRoot ? getUniqueVaultFilePath(
+      "/",
+      destination.fileName,
+      (path) => Boolean(app2.vault.getAbstractFileByPath(path))
+    ) : null;
+    const createOptions = {
+      filename: destination.fileName,
+      foldername: destination.folderPath,
+      templatePath: uiState.templatePath,
+      onNewPane: true,
+      silent: true
+    };
+    const newPath = await ea2.create(createOptions);
+    const normalizedNewPath = ea2.obsidian.normalizePath(newPath);
+    if (!requestedVaultRoot || isVaultRootFilePath(normalizedNewPath)) {
+      return normalizedNewPath;
+    }
+    const createdFile = await waitForVaultFile(ea2, app2, normalizedNewPath, ownerWindow);
+    if (!createdFile) {
+      return normalizedNewPath;
+    }
+    if (!intendedRootPath) return normalizedNewPath;
+    const rootTarget = app2.vault.getAbstractFileByPath(intendedRootPath) ? getUniqueVaultFilePath(
+      "/",
+      destination.fileName,
+      (path) => Boolean(app2.vault.getAbstractFileByPath(path))
+    ) : intendedRootPath;
+    await app2.fileManager.renameFile(createdFile, rootTarget);
+    return rootTarget;
+  }
+  async function executeDeconstruction(context, destination, shouldAnchor) {
+    const { ea: ea2, app: app2, t: t2, uiState, ownerWindow } = context;
+    const newPath = await createDrawingAtDestination(context, destination);
+    const file = await waitForDrawingFile(ea2, app2, newPath, ownerWindow);
+    if (!file) {
+      new Notice(t2("somethingWentWrong"));
+      return;
+    }
+    const padding = getExportPadding(ea2, app2, file);
+    await replaceSelectionWithEmbed(context, file, padding, shouldAnchor);
+    await openCreatedDrawing(context, file);
+    if (!uiState.openDeconstructedImage) new Notice(t2("deconstructionReady"));
+  }
+
+  // src/scripts/deconstruct-selected-elements-into-new-drawing/destination.ts
+  function validateDeconstructionDestination(folderPath, fileName) {
+    const fileValidation = validateVaultFileName(fileName);
+    if (!fileValidation.valid) {
+      return { valid: false, field: "file", validation: fileValidation };
+    }
+    const folderValidation = validateVaultFolderPath(folderPath);
+    if (!folderValidation.valid) {
+      return { valid: false, field: "folder", validation: folderValidation };
+    }
+    return {
+      valid: true,
+      folderPath: folderPath === "/" ? "" : folderPath,
+      fileName: fileName.toLowerCase().endsWith(".md") ? fileName : `${fileName}.md`
+    };
+  }
+  function formatDestinationValidationError(t2, result) {
+    const { validation } = result;
+    if (result.field === "file" && validation.reason === "empty") {
+      return t2("filenameRequired");
+    }
+    if (validation.reason === "invalid-character" && validation.character !== void 0) {
+      const character = formatVaultInvalidCharacter(validation.character);
+      return t2(result.field === "file" ? "invalidFilenameCharacter" : "invalidFolderCharacter", {
+        character
+      });
+    }
+    return t2(result.field === "file" ? "invalidFilename" : "invalidFolderPath", {
+      name: validation.segment
+    });
+  }
+
+  // src/scripts/deconstruct-selected-elements-into-new-drawing/folderSuggest.ts
+  function attachFolderSuggest(ea2, app2, inputEl) {
+    const BaseSuggest = ea2.obsidian.AbstractInputSuggest;
+    class FolderSuggest extends BaseSuggest {
+      targetInput;
+      constructor() {
+        super(app2, inputEl);
+        this.targetInput = inputEl;
+      }
+      getSuggestions(query) {
+        const folderPaths = app2.vault.getAllLoadedFiles().filter((file) => file instanceof ea2.obsidian.TFolder).map((folder) => folder.path);
+        return rankVaultFolderSuggestions(folderPaths, query);
+      }
+      renderSuggestion(value, el) {
+        el.setText(value);
+      }
+      selectSuggestion(value, _event) {
+        this.targetInput.value = value;
+        const ownerWindow = this.targetInput.ownerDocument.defaultView;
+        if (ownerWindow) {
+          this.targetInput.dispatchEvent(new ownerWindow.Event("input", { bubbles: true }));
+        }
+        this.close();
+      }
+    }
+    return new FolderSuggest();
+  }
+
+  // src/scripts/deconstruct-selected-elements-into-new-drawing/modal.ts
+  function createTextInput(context, content, label, value) {
+    const row = content.createDiv({ cls: "setting-item" });
+    row.createDiv({ cls: "setting-item-info" }).createEl("label", { text: label });
+    const control = row.createDiv({ cls: "setting-item-control" });
+    const input = new context.ea.obsidian.TextComponent(control);
+    input.setValue(value);
+    input.inputEl.style.width = "100%";
+    return input;
+  }
+  function addBehaviorSettings(context, content) {
+    const { ea: ea2, t: t2, config, uiState } = context;
+    new ea2.obsidian.Setting(content).setName(t2("selectTemplate")).addDropdown((dropdown) => {
+      if (config.templates.length === 0) dropdown.addOption("", t2("noTemplate"));
+      for (const file of config.templates) dropdown.addOption(file.path, file.basename);
+      dropdown.setValue(uiState.templatePath).onChange((value) => {
+        uiState.templatePath = value;
+      });
+    });
+    let reuseSetting = null;
+    new ea2.obsidian.Setting(content).setName(t2("openDeconstructedImage")).addToggle(
+      (toggle) => toggle.setValue(uiState.openDeconstructedImage).onChange((value) => {
+        uiState.openDeconstructedImage = value;
+        if (reuseSetting) reuseSetting.settingEl.style.display = value ? "" : "none";
       })
     );
-
-  // -- Reuse Tab Toggle --
-  const reuseSetting = new ea.obsidian.Setting(content)
-    .setName(`Reuse existing tab`)
-    .setDesc("If available, open in an adjacent tab. Otherwise open in a new tab.")
-    .setClass("reuse-tab-setting")
-    .addToggle((toggle) => toggle
-      .setValue(window.ExcalidrawDeconstructElements.reuseTab)
-      .onChange(value => {
-        window.ExcalidrawDeconstructElements.reuseTab = value;
+    reuseSetting = new ea2.obsidian.Setting(content).setName(t2("reuseExistingTab")).setDesc(t2("reuseExistingTabDesc")).setClass("reuse-tab-setting").addToggle(
+      (toggle) => toggle.setValue(uiState.reuseTab).onChange((value) => {
+        uiState.reuseTab = value;
       })
     );
-  
-  // Initialize visibility and style
-  reuseSetting.settingEl.style.display = window.ExcalidrawDeconstructElements.openDeconstructedImage ? "" : "none";
-  reuseSetting.settingEl.style.borderTop = "none";
-  
-  // -- Buttons --
-  const buttonContainer = content.createDiv({ cls: "excalidraw-dialog-buttons", style: "margin-top: 20px; display: flex; gap: 12px; justify-content: flex-end;" });
-  
-  const btnInsert = new ea.obsidian.ButtonComponent(buttonContainer)
-    .setButtonText("Insert")
-    .setTooltip("Insert without anchoring")
-    .onClick(async () => {
-      const folder = folderInput.getValue();
-      const filename = fileInput.getValue();
-      if (!filename) {
-        new Notice("Filename is required");
-        return;
-      }
-      modal.close();
-      await executeDeconstruction(folder, filename, false);
-    });
+    reuseSetting.settingEl.style.display = uiState.openDeconstructedImage ? "" : "none";
+    reuseSetting.settingEl.style.borderTop = "none";
+  }
+  async function submitDeconstruction(context, modal, inputs, shouldAnchor) {
+    const destination = validateDeconstructionDestination(
+      inputs.folder.getValue(),
+      inputs.file.getValue()
+    );
+    if (!destination.valid) {
+      new Notice(formatDestinationValidationError(context.t, destination));
+      return;
+    }
+    modal.close();
+    await executeDeconstruction(context, destination, shouldAnchor);
+  }
+  function addButtons(context, modal, content, inputs) {
+    const buttons = content.createDiv({ cls: "excalidraw-dialog-buttons" });
+    buttons.style.marginTop = "20px";
+    buttons.style.display = "flex";
+    buttons.style.gap = "12px";
+    buttons.style.justifyContent = "flex-end";
+    new context.ea.obsidian.ButtonComponent(buttons).setButtonText(context.t("insert")).setTooltip(context.t("insertTooltip")).onClick(async () => submitDeconstruction(context, modal, inputs, false));
+    new context.ea.obsidian.ButtonComponent(buttons).setButtonText(context.t("insertAt100")).setTooltip(context.t("insertAt100Tooltip")).setCta().onClick(async () => submitDeconstruction(context, modal, inputs, true));
+  }
+  function openDeconstructModal(context) {
+    const { ea: ea2, app: app2, t: t2, config } = context;
+    const modal = new ea2.FloatingModal(app2);
+    modal.setTitle(t2("modalTitle"));
+    let folderSuggest = null;
+    modal.onOpen = () => {
+      const content = modal.contentEl;
+      content.empty();
+      const currentFolder = ea2.targetView?.file.parent?.path ?? "";
+      const folderInput = createTextInput(context, content, t2("folderPath"), currentFolder);
+      folderSuggest = attachFolderSuggest(ea2, app2, folderInput.inputEl);
+      const fileInput = createTextInput(context, content, t2("fileName"), config.defaultFileName);
+      ea2.targetView?.ownerWindow.setTimeout(() => fileInput.inputEl.focus(), 50);
+      addBehaviorSettings(context, content);
+      addButtons(context, modal, content, { folder: folderInput, file: fileInput });
+    };
+    modal.onClose = () => {
+      folderSuggest?.close();
+      modal.contentEl.empty();
+    };
+    modal.open();
+  }
 
-  const btnInsertAnchor = new ea.obsidian.ButtonComponent(buttonContainer)
-    .setButtonText("Insert @100%")
-    .setTooltip("Anchor to 100% size")
-    .setCta()
-    .onClick(async () => {
-      const folder = folderInput.getValue();
-      const filename = fileInput.getValue();
-      if (!filename) {
-        new Notice("Filename is required");
-        return;
-      }
-      modal.close();
-      await executeDeconstruction(folder, filename, true);
-    });
-};
+  // src/scripts/deconstruct-selected-elements-into-new-drawing/settings.ts
+  var TEMPLATES_SETTING = "Templates";
+  var DEFAULT_FILE_NAME_SETTING = "Default file name";
+  var DEFAULT_FILE_NAME = "deconstructed";
+  function asTextScriptSetting(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    const record = value;
+    if (typeof record.value !== "string") return null;
+    return {
+      value: record.value,
+      description: typeof record.description === "string" ? record.description : ""
+    };
+  }
+  async function ensureSettings(ea2, t2) {
+    const current = ea2.getScriptSettings() ?? {};
+    const templates = asTextScriptSetting(current[TEMPLATES_SETTING]);
+    const defaultFileName = asTextScriptSetting(current[DEFAULT_FILE_NAME_SETTING]);
+    if (templates && defaultFileName) return current;
+    const next = { ...current };
+    if (!templates) {
+      next[TEMPLATES_SETTING] = {
+        value: "",
+        description: t2("templatesSettingDesc")
+      };
+    }
+    if (!defaultFileName) {
+      next[DEFAULT_FILE_NAME_SETTING] = {
+        value: DEFAULT_FILE_NAME,
+        description: t2("defaultFilenameSettingDesc")
+      };
+    }
+    await ea2.setScriptSettings(next);
+    return next;
+  }
+  function resolveTemplates(ea2, app2, configuredPaths) {
+    const customTemplates = configuredPaths.split(",").map((path) => path.trim()).filter(Boolean).map((path) => app2.metadataCache.getFirstLinkpathDest(path, "")).filter((file) => file !== null);
+    const byPath = /* @__PURE__ */ new Map();
+    for (const file of [...customTemplates, ...ea2.getListOfTemplateFiles() ?? []]) {
+      byPath.set(file.path, file);
+    }
+    return [...byPath.values()].sort((left, right) => left.basename.localeCompare(right.basename));
+  }
+  async function loadDeconstructConfig(ea2, app2, t2) {
+    const settings = await ensureSettings(ea2, t2);
+    const templatesSetting = asTextScriptSetting(settings[TEMPLATES_SETTING]);
+    const defaultFileNameSetting = asTextScriptSetting(settings[DEFAULT_FILE_NAME_SETTING]);
+    const configuredTemplatePaths = templatesSetting?.value ?? "";
+    return {
+      defaultFileName: defaultFileNameSetting?.value || DEFAULT_FILE_NAME,
+      templates: resolveTemplates(ea2, app2, configuredTemplatePaths)
+    };
+  }
 
-modal.open();
+  // src/scripts/deconstruct-selected-elements-into-new-drawing/uiState.ts
+  function getDeconstructUiState(ownerWindow, defaultTemplatePath) {
+    const deconstructWindow = ownerWindow;
+    const existing = deconstructWindow.ExcalidrawDeconstructElements;
+    if (!existing) {
+      const state = {
+        openDeconstructedImage: true,
+        reuseTab: true,
+        templatePath: defaultTemplatePath
+      };
+      deconstructWindow.ExcalidrawDeconstructElements = state;
+      return state;
+    }
+    if (typeof existing.reuseTab !== "boolean") existing.reuseTab = true;
+    if (typeof existing.openDeconstructedImage !== "boolean") {
+      existing.openDeconstructedImage = true;
+    }
+    if (typeof existing.templatePath !== "string") existing.templatePath = defaultTemplatePath;
+    return existing;
+  }
+
+  // src/scripts/deconstruct-selected-elements-into-new-drawing/run.ts
+  async function runDeconstructSelectedElements(scriptEa, app2, t2) {
+    if (!scriptEa.verifyMinimumPluginVersion("2.27.0")) {
+      new Notice(t2("requiresNewerVersion"));
+      return;
+    }
+    const targetView = scriptEa.targetView;
+    if (!targetView) return;
+    const selectedElements = scriptEa.getViewSelectedElements();
+    if (selectedElements.length === 0) {
+      new Notice(t2("selectElements"));
+      return;
+    }
+    const ea2 = scriptEa;
+    const bounds = ea2.getBoundingBox(selectedElements);
+    ea2.clear();
+    ea2.copyViewElementsToEAforEditing(selectedElements);
+    copyEmbeddedFilesToEa(ea2, ea2.getElements());
+    const config = await loadDeconstructConfig(ea2, app2, t2);
+    const defaultTemplatePath = config.templates[0]?.path ?? "";
+    const uiState = getDeconstructUiState(targetView.ownerWindow, defaultTemplatePath);
+    if (uiState.templatePath && !config.templates.some((file) => file.path === uiState.templatePath)) {
+      uiState.templatePath = defaultTemplatePath;
+    }
+    openDeconstructModal({
+      ea: ea2,
+      app: app2,
+      t: t2,
+      config,
+      uiState,
+      bounds,
+      ownerWindow: targetView.ownerWindow
+    });
+  }
+
+  // src/scripts/deconstruct-selected-elements-into-new-drawing/main.ts
+  var t = createDeconstructTranslator(ea.obsidian.moment.locale());
+  void runDeconstructSelectedElements(ea, app, t);
+})();
+
+/* end of bundle */
+
 ```
 
 ---
@@ -13069,6 +15505,7 @@ for (const line of lines) {
 
 ea.copyViewElementsToEAforEditing(lines);
 await ea.addElementsToView(false,false);
+
 ```
 
 ---
@@ -13137,6 +15574,7 @@ id = ea.addEllipse(
 ea.copyViewElementsToEAforEditing(elements);
 ea.addToGroup([id].concat(elements.map((el)=>el.id)));
 ea.addElementsToView(false,false);
+
 ```
 
 ---
@@ -16089,6 +18527,8 @@ const openConfigModal = () => {
 };
 
 openConfigModal();
+
+
 ```
 
 ---
@@ -16424,6 +18864,7 @@ const outfile = await app.vault.create(outputPath,result);
 setTimeout(()=>{
   ea.openFileInNewOrAdjacentLeaf(outfile);
 }, 250);
+
 ```
 
 ---
@@ -18179,6 +20620,7 @@ function recalculateEndPointOfLine(line, el) {
     	line.points[line.points.length - 1] = [intersectA[0][0] - line.x, intersectA[0][1] - line.y];
 	}
 }
+
 ```
 
 ---
@@ -18260,6 +20702,7 @@ for(var i=0; i<groups.length; i++) {
 }
 ea.copyViewElementsToEAforEditing(elements);
 await ea.addElementsToView(false, false);
+
 ```
 
 ---
@@ -18394,6 +20837,7 @@ else if(fromBorder === 'right') {
 
 ea.copyViewElementsToEAforEditing(elements);
 await ea.addElementsToView(false, false);
+
 ```
 
 ---
@@ -18470,6 +20914,7 @@ for(var i=0; i<groups.length; i++) {
 }
 ea.copyViewElementsToEAforEditing(elements);
 await ea.addElementsToView(false, false);
+
 ```
 
 ---
@@ -18629,6 +21074,7 @@ for(var i=0; i<groups.length; i++) {
 }
 ea.copyViewElementsToEAforEditing(elements);
 await ea.addElementsToView(false, false);
+
 ```
 
 ---
@@ -18809,6 +21255,7 @@ do {
 
 
 await ea.addElementsToView(false, false, true);
+
 ```
 
 ---
@@ -19565,6 +22012,7 @@ try {
 } catch (err) {
   _ = new Notice(err.toString())
 }
+
 ```
 
 ---
@@ -22408,7 +24856,8 @@ try {
 } catch (error) {
   console.error("Error showing completion message:", error);
   new Notice("Operation completed with some errors");
-}
+} 
+
 ```
 
 ---
@@ -22537,6 +24986,7 @@ ea.viewUpdateScene({
   elements: ea.getElements(),
   storeAction: "capture" // Ensures the change is saved and added to the undo/redo history.
 });
+
 ```
 
 ---
@@ -22596,6 +25046,7 @@ for (const el of ea.getElements()) {
   }
 }
 await ea.addElementsToView(false, false);
+
 ```
 
 ---
@@ -22812,6 +25263,7 @@ const bottomHeaderY = START_Y + 160 + (12 * (CELL_HEIGHT + ROW_SPACING)) + 40;
 drawDayHeaders(bottomHeaderY);
 
 await ea.addElementsToView(false, false, true);
+
 ```
 
 ---
@@ -26208,11 +28660,36 @@ const zoomToFit = (mode) => {
       elementID: sel.id,
       level: nextLevel
     }
-    api().scrollToContent([sel], {
-      fitToViewport: true,
-      viewportZoomFactor: getZoom(nextLevel),
-      animate: true
-    });
+    
+    const targetZoom = getZoom(nextLevel);
+    
+    // Fallback for older versions vs new Excalidraw 2.26.0+ Viewport API
+    if (!ea.verifyMinimumPluginVersion("2.26.0")) {
+      api().scrollToContent([sel], {
+        fitToViewport: true,
+        viewportZoomFactor: targetZoom,
+        animate: true
+      });
+    } else {
+      // For the new API, we calculate a target rect centered on the element 
+      // with dimensions that will force 'fit: "contain"' to reach our target zoom.
+      const appState = api().getAppState();
+      const targetW = appState.width / targetZoom;
+      const targetH = appState.height / targetZoom;
+      const cx = sel.x + sel.width / 2;
+      const cy = sel.y + sel.height / 2;
+      
+      api().setViewport({
+        target: {
+          x: cx - targetW / 2,
+          y: cy - targetH / 2,
+          width: targetW,
+          height: targetH
+        },
+        fit: "contain",
+        animation: true
+      });
+    }
   }
 }
 
@@ -26241,10 +28718,20 @@ const focusSelected = () => {
 
   if (!sel) return;
 
-  api().scrollToContent(sel, {
-    fitToContent: false,
-    animate: true,
-  });
+  // Fallback for older versions vs new Excalidraw 2.26.0+ Viewport API
+  if (!ea.verifyMinimumPluginVersion("2.26.0")) {
+    api().scrollToContent(sel, {
+      fitToContent: false,
+      animate: true,
+    });
+  } else {
+    // fit: "none" recenters at the current zoom without changing it
+    api().setViewport({
+      target: [sel],
+      fit: "none",
+      animation: true
+    });
+  }
 };
 
 const getMindmapOrder = (node) => {
@@ -36942,6 +39429,7 @@ else {
 }
 
 await ea.addElementsToView(false,false,true);
+
 ```
 
 ---
@@ -37319,6 +39807,7 @@ generateTree(elements);
 
 ea.copyViewElementsToEAforEditing(elements);
 await ea.addElementsToView(false, false);
+
 ```
 
 ---
@@ -38354,6 +40843,7 @@ async function run() {
 }
 
 run();
+
 ```
 
 ---
@@ -39268,6 +41758,7 @@ async function run() {
 }
 
 run();
+
 ```
 
 ---
@@ -39443,6 +41934,7 @@ for(i of img) {
 	  await app.fileManager.renameFile(file,`${newPath}.${file.extension}`);
   }
 }
+
 ```
 
 ---
@@ -39566,6 +42058,7 @@ for(let i=0; i<repeatNum; i++) {
 }
 
 await ea.addElementsToView(false, false, true);
+
 ```
 
 ---
@@ -39668,6 +42161,8 @@ for(let i=0; i<repeatNum; i++) {
 }
 
 await ea.addElementsToView(false, false, true);
+
+
 ```
 
 ---
@@ -40763,6 +43258,7 @@ ea.copyViewElementsToEAforEditing(elements);
 ea.getElements().forEach((el)=>el.strokeWidth=width);
 await ea.addElementsToView(false,false);
 ea.viewUpdateScene({appState: {currentItemStrokeWidth: width}});
+
 ```
 
 ---
@@ -41611,944 +44107,7174 @@ ea.createSidepanelTab("Shade Master", false, true).then(tab => {
 <!-- Source: ea-scripts/Slideshow.md -->
 
 /*
+# Slideshow
 
-# About the slideshow script
-The script will convert your drawing into a slideshow presentation.
-![Slideshow 3.0](YouTube: JwgtCrIVeEU)
+Converts the active Excalidraw drawing into a slideshow presentation. The built
+script is emitted to `build/slideshow/slideshow.md`.
 
-![](https://raw.githubusercontent.com/zsviczian/obsidian-excalidraw-plugin/master/images/scripts-slideshow-2.jpg)
-## Presentation options
-- If you select an arrow or line element, the script will use that as the presentation path.
-- If you select nothing, but the file has a hidden presentation path, the script will use that for determining the slide sequence.
-- If there are frames, the script will use the frames for the presentation. Frames are played in alphabetical order of their titles.
-# Keyboard shortcuts and modifier keys
-**Forward**: Arrow Down, Arrow Right, or SPACE
-**Backward**: Arrow Up, Arrow Left
-**Finish presentation**: Backspace, ESC (I had issues with ESC not working in full screen presentation mode on Mac)
+[Watch the Slideshow 3.0 walkthrough](YouTube: JwgtCrIVeEU) and the [Excalidraw 2.27.0 update video](YouTube: am2HOlbYsxI?si=4UPdmFMJcpM6j9oR&t=272)
 
-**Run presentation in a window**: Hold down the ALT/OPT modifier key when clicking the presentation script button
-**Continue presentation**: Hold down SHIFT when clicking the presentation script button. (The feature also works in combination with the ALT/OPT modifier to start the presentation in a window). The feature will only resume while you are within the same Obsidian session (i.e. if you restart Obsidian, slideshow will no longer remember where you were). I have two use cases in mind for this feature: 
-1) When you are designing your presentation you may want to test how a slide looks. Using this feature you can get back to where you left off by starting the presentation with SHIFT.
-2) During presentation you may want to exit presentation mode to show something additional to your audience. You stop the presentation, show the additional thing you wanted, now you want to continue from where you left off. Hold down SHIFT when clicking the slideshow button.
+![Slideshow example](https://raw.githubusercontent.com/zsviczian/obsidian-excalidraw-plugin/master/images/scripts-slideshow-2.jpg)
+
+## Launch behavior
+
+- Slideshow requests Excalidraw Automate autostart permission. Its autostart pass only registers
+  the view-local **Edit slideshow** element action; it never starts a presentation.
+- Select a frame or line/arrow carrying slideshow metadata and use its Lucide presentation action
+  to open/focus the **Slideshow** sidepanel for that element's frame or line deck.
+- After a view is registered, invoking the script from its toolbar icon, Obsidian command, or
+  hotkey starts that view's presentation. A normal invocation starts fullscreen; whether presenter
+  notes open follows the persisted sidepanel setting. Shift resumes saved progress, Alt/Option
+  starts windowed, and Cmd/Ctrl opens/focuses the Slideshow sidepanel instead of presenting.
+  Invoking the script again while a presentation is active advances the existing controller unless
+  Cmd/Ctrl is held, in which case the presentation ends and the sidepanel opens.
+- Slideshow uses `utils.executionSource` so autostart remains registration-only while the very
+  first manual toolbar, command, or hotkey invocation can start presenting immediately.
+- The presentation toolbar's settings button ends the active presentation and opens the sidepanel.
+  Presentation-source switching and presenter-view launch are intentionally configured from the
+  sidepanel rather than duplicated on the compact presentation toolbar.
+- The sidepanel is a single non-persistent instance. It follows the most recently focused
+  Excalidraw drawing across main-window/popout contexts and shows an empty state for Markdown notes.
+
+## Presentation sources and slide order
+
+A drawing can contain one frame presentation plus any number of independent line/arrow presentations. The sidepanel keeps an explicit presentation-source selection; selecting ordinary canvas elements never changes which deck the sorter is editing.
+
+- Frames form one presentation source when the drawing contains frames.
+- A line/arrow becomes a presentation source only after slideshow metadata is created for it. Selecting an ordinary line does **not** implicitly turn it into a slideshow or replace the sidepanel deck.
+- When an ordinary line/arrow with at least one complete point pair is selected, the sidepanel shows a contextual **Create line presentation** action in the top toolbar.
+- Every persisted line presentation has its own optional name. Use its ellipsis/settings action beside the deck summary to rename it or remove only its slideshow metadata. Removing presentation metadata never deletes the line itself and restores its original styling if the path had been persistently hidden.
+- If presentation names collide, the selector disambiguates them only in the UI as `Name (1)`, `Name (2)`, and so on; element ids remain the stable identity. Unnamed paths use `Line presentation` with the same duplicate-numbering rule.
+- When multiple sources exist, the presentation selector lists `Frames` plus every named line presentation independently. Manual script launch prefers a selected **persisted** line presentation; otherwise frames are the default when available, then the first persisted line presentation.
+- Frames without slideshow metadata retain alphabetical ordering.
+- The first sorter mutation writes explicit normalized `order` metadata; after that, frame renames do not change presentation order.
+- Excluded frame and line slides remain visible and editable in the sorter, but are omitted from presentation and PDF output.
+
+## Slide sorter
+
+The sidepanel shows a title, thumbnail, and controls for every slide. Titles occupy their own top row so long frame names remain readable.
+
+- Desktop: drag rows to reorder them.
+- All platforms: use the up/down buttons or `Alt+Arrow Up/Down`.
+- `Arrow Up/Down`: move sorter focus.
+- `Enter`: zoom the drawing editor to the focused slide.
+- `Space`: toggle inclusion for frame or line slides.
+- `N`: expand and focus presenter notes for the selected slide.
+- `A`: open the animation editor for a frame slide.
+
+Line slides reorder consecutive point pairs in absolute scene coordinates and normalize the line origin afterward. Stable line-slide metadata records are reordered in the same transaction so presenter notes and inclusion state remain attached to the correct slide. Reordering is disabled when the presentation line/arrow has an active start or end binding.
+
+## Appearance sequence and animation
+
+Frame slides support a build sequence stored on the frame's slideshow metadata. Open the sorter, choose a frame, and use the sparkles action (or `A`) to expand the animation editor directly beneath that slide. The frame is selected and zoomed to fit when editing starts. Select elements or groups in the drawing, then add or update steps with these effects:
+
+- **Appear:** restore the target instantly.
+- **Fade:** animate from transparent to the element's original opacity.
+- **Slide in:** animate an SVG overlay from the chosen direction.
+- **Zoom in:** animate an SVG overlay from approximately 5% scale at the target center.
+
+Steps can trigger on presenter advance or sequentially after a delay. Fade, slide, and zoom default to 350 ms; timed steps default to a 1000 ms delay. Steps can be reordered with drag/drop, buttons, or `Alt+Arrow Up/Down`, previewed, edited, and deleted. Editor previews position SVG motion overlays in the drawing host coordinate space, matching presentation geometry even when the Excalidraw leaf is offset by sidepanels or other workspace chrome.
+
+Groups are stored by group ID and resolved dynamically when the presentation runs. Bound text and its container are treated as one visual unit. Marker frames do not own their contents, so animation eligibility is determined by geometric overlap between each element rectangle and the marker-frame rectangle rather than by `frameId`. Adding a target that already belongs to another animation step moves it to the new step instead of creating conflicting builds.
+
+Presentation navigation is hierarchical: Forward reveals the next pending build before advancing the slide; Backward reverses the most recently completed build before moving to the previous slide. Previous slides entered while navigating backward start fully built, while direct jumps enter the destination in its initial build state. Timed callbacks and animation frames are invalidated on navigation and exit. Temporary scene changes use `captureUpdate: "NEVER"`; real elements are changed only through opacity, while slide/zoom motion uses disposable SVG overlays. Any interruption or presentation exit explicitly restores every animated target to its final/original visibility before cleanup.
+
+Animation editing remains frame-only because frames provide stable geometric slide boundaries. Line slides support ordering, notes, and inclusion/exclusion but not element animation.
+
+## Presenter notes
+
+Each sorter row can own Markdown presenter notes. Use the notes icon on that row to expand/collapse its editor directly beneath the slide instead of using a shared editor at the bottom of the sorter.
+
+- Frame notes are stored in `frame.customData.slideshow.notes`.
+- Line-slide notes are stored in the corresponding stable record on the presentation-path element.
+- Notes save after a short debounce and are flushed on blur, slide changes, panel close, and presentation start.
+- Empty notes are removed rather than persisted as empty strings.
+- Each persisted notes edit is followed by an immediate drawing `forceSave(true)` so the metadata is written to disk, not merely left dirty in memory.
+
+On desktop, presenter view runs in a script-owned Obsidian popout. The presenter window shows the current slide, rendered Markdown notes, live animation progress, and the **next navigation state**. When another animation is pending, the large next preview shows that next animation state on the current slide; only after the slide is fully built does it preview the next visible slide. A layout toggle can devote approximately 85% of the window width to presenter notes, leaving a compact current/next preview rail for teleprompter-style use. Its Previous/Next controls and keyboard shortcuts call the same `SlideshowController` state machine as the floating presentation toolbar. Keyboard handling is scoped to the window that actually has focus and ignores repeated/default-prevented keydown events, preventing one key press from being interpreted twice. Closing only the presenter popout leaves the presentation running; ending the presentation closes the presenter popout as part of cleanup. Presenter view is disabled on mobile because Obsidian does not support popout windows there.
+
+## Thumbnails
+
+`SlidePreviewService` calculates each slide's configured `printSlideWidth` × `printSlideHeight` navigation rectangle and exports only elements intersecting that viewport. Sorter and presenter previews are bounded-resolution PNG blobs rather than full-scene SVG clones, so off-slide embedded images are not repeated in every thumbnail. Sorter previews are requested lazily with `IntersectionObserver` and rendered through a serialized queue. A byte-budgeted LRU cache owns object URLs and revokes them on eviction or drawing changes. Slideshow metadata-only changes do not invalidate visual previews.
+
+PDF pages use the same area-selection and exact viewport anchoring through `ea.createViewSVG({ exportArea })`, but remain vector SVGs. Each page is self-contained and includes only image files referenced by elements intersecting that page instead of retaining the complete drawing behind a changed `viewBox`.
+
+## Slideshow settings
+
+The sidepanel cog opens a script-owned settings modal for transition timing, edit zoom, fade level, print/presentation dimensions, and maximum zoom. Values are persisted through Excalidraw Automate script settings, with the historical configuration values used as defaults. The sidepanel preview aspect ratio updates to match the configured print width and height.
+
+The sidepanel also includes a small support link to [Ko-fi](https://ko-fi.com/zsolt).
+
+## Presentation launch, displays, and PDF behavior
+
+The sidepanel has one compact **Play** button. Launch behavior is configured independently through dropdowns instead of overloading the play action: **Start / Resume / Current**, **Fullscreen / Windowed**, and **Slides only / With Notes**. If multiple presentation sources exist, a separate presentation selector is shown. Changing a dropdown never starts the presentation; pressing Play uses the currently selected combination. These choices are persisted in script settings. The launch/display controls live in a collapsible **Presentation settings** section so the sorter can use most of the panel height. Windowed launches hide the entire Excalidraw sidepanel before presentation so the deck receives the full workspace width.
+
+On desktop, display selectors are shown only when **With Notes** is selected. The default keeps the presentation on the current/primary display and chooses another display for presenter notes when available. Presentation and notes display selections are persisted in script settings under a stable local device key, allowing different machines that share the script settings to keep independent monitor choices.
+
+Presenter placement is deliberately fail-safe. The host native-window placement is captured **before** a presenter popout is opened. After `openPopoutLeaf()`, Slideshow waits until Obsidian has actually migrated the presenter leaf into a DOM `Window` distinct from the host, then verifies that the two DOM windows resolve to different native Electron `BrowserWindow`s before moving either presenter window. If identity cannot be established unambiguously, presenter movement is skipped instead of risking moving the main Obsidian window. The host is then moved to the requested presentation display and fullscreen is requested only after Electron confirms the display transition. Native restoration uses Electron's `BrowserWindow.id`, waits for macOS native fullscreen to finish exiting, and briefly monitors the captured host for a late Sidecar/Spaces drift; only a window that moves off its original display or fully off-screen is repaired.
+
+Display handling remains best-effort because Obsidian does not expose a first-class presentation-display API to scripts.
+On Obsidian Mobile, presentations always use fullscreen mode, presenter view is unavailable, and the docked mobile navbar is hidden for the duration of the presentation. The presentation toolbar is centered and uses a compact slide picker on narrow screens.
+
+
+Presentation navigation, the toolbar slide picker, and PDF export consume the canonical visible deck. Frame order and exclusions therefore match the sorter. The presentation slide picker labels entries as `Title (current/total)`. Starting from the sidepanel returns focus to the drawing leaf before keyboard handlers are installed, so arrow-key navigation is immediately active. PDF pages use the final fully built scene state: all animation targets are restored to their original opacity and no animation overlays are included.
+
+## Keyboard shortcuts and modifier keys during presentation
+
+- **Forward:** Arrow Down, Arrow Right, or Space
+- **Backward:** Arrow Up or Arrow Left
+- **Finish:** Backspace or Escape
+- **Edit current line-path slide:** E
+- **Toggle fullscreen:** F
+- **Return to the current slide:** Home
+- **Go to the final slide:** End
+- **Normal script invocation:** start fullscreen. Slides-only vs presenter notes follows the sidepanel setting.
+- **Run in a window:** Hold Alt/Option while launching the script.
+- **Resume from the last slide:** Hold Shift while launching the script. Progress is held only in
+  temporary runtime memory and is tracked independently for each concrete Excalidraw view, even
+  when two views show the same file. It can be combined with Alt/Option.
+- **Open the Slideshow sidepanel:** Hold Cmd on macOS or Ctrl on Windows/Linux while invoking the script.
+
+Build version: 2026-09-05T16:40:26.928Z
 
 ```javascript
 */
-if(!ea.verifyMinimumPluginVersion || !ea.verifyMinimumPluginVersion("2.8.0")) {
-  new Notice("This script requires a newer version of Excalidraw. Please install the latest version.");
-  return;
-}
 
-if(ea.targetView.isDirty()) {
-  ea.targetView.forceSave(true);
-}
-
-const hostLeaf = ea.targetView.leaf;
-const hostView = hostLeaf.view;
-const statusBarElement = document.querySelector("div.status-bar");
-const ctrlKey = ea.targetView.modifierKeyDown.ctrlKey || ea.targetView.modifierKeyDown.metaKey;
-const altKey = ea.targetView.modifierKeyDown.altKey || ctrlKey;
-const shiftKey = ea.targetView.modifierKeyDown.shiftKey;
-const shouldStartWithLastSlide = shiftKey && window.ExcalidrawSlideshow &&
-      (window.ExcalidrawSlideshow.script === utils.scriptFile.path) && (typeof window.ExcalidrawSlideshow.slide?.[ea.targetView.file.path] === "number")
-//-------------------------------
-//constants
-//-------------------------------
-const TRANSITION_STEP_COUNT = 100;
-const TRANSITION_DELAY = 1000; //maximum time for transition between slides in milliseconds
-const FRAME_SLEEP = 1; //milliseconds
-const EDIT_ZOOMOUT = 0.7; //70% of original slide zoom, set to a value between 1 and 0
-const FADE_LEVEL = 0.1; //opacity of the slideshow controls after fade delay (value between 0 and 1)
-const PRINT_SLIDE_WIDTH = 1920;
-const PRINT_SLIDE_HEIGHT = 1080;
-const MAX_ZOOM = 30; //3000%
-//using outerHTML because the SVG object returned by Obsidin is in the main workspace window
-//but excalidraw might be open in a popout window which has a different document object
-const SVG_COG = ea.obsidian.getIcon("lucide-settings").outerHTML;
-const SVG_FINISH = ea.obsidian.getIcon("lucide-x").outerHTML;
-const SVG_RIGHT_ARROW = ea.obsidian.getIcon("lucide-arrow-right").outerHTML;
-const SVG_LEFT_ARROW = ea.obsidian.getIcon("lucide-arrow-left").outerHTML;
-const SVG_EDIT = ea.obsidian.getIcon("lucide-pencil").outerHTML;
-const SVG_MAXIMIZE = ea.obsidian.getIcon("lucide-maximize").outerHTML;
-const SVG_MINIMIZE = ea.obsidian.getIcon("lucide-minimize").outerHTML;
-const SVG_LASER_ON = ea.obsidian.getIcon("lucide-hand").outerHTML;
-const SVG_LASER_OFF = ea.obsidian.getIcon("lucide-wand").outerHTML;
-const SVG_PRINTER = ea.obsidian.getIcon("lucide-printer").outerHTML;
-const SVG_REFOCUS = ea.obsidian.getIcon("lucide-scan-eye").outerHTML;
-
-//-------------------------------
-//utility & convenience functions
-//-------------------------------
-let shouldSaveAfterThePresentation = false;
-let isLaserOn = false;
-let slide = shouldStartWithLastSlide ? window.ExcalidrawSlideshow.slide?.[ea.targetView.file.path] : 0;
-let isFullscreen = false;
-const ownerDocument = ea.targetView.ownerDocument;
-const startFullscreen = !altKey;
-
-//The plugin and Obsidian App run in the window object
-//When Excalidraw is open in a popout window, the Excalidraw component will run in the ownerWindow
-//and in this case ownerWindow !== window
-//For this reason event handlers are distributed between window and owner window depending on their role
-const ownerWindow = ea.targetView.ownerWindow;
-const excalidrawAPI = ea.getExcalidrawAPI();
-const frameRenderingOriginalState = excalidrawAPI.getAppState().frameRendering;
-const contentEl = ea.targetView.contentEl;
-const sleep = async (ms) => new Promise((resolve) => ownerWindow.setTimeout(resolve, ms));
-const getFrameName = (name, index) => name ?? `Frame ${(index+1).toString().padStart(2, '0')}`;
-
-//-------------------------------
-//clean up potential clutter from previous run
-//-------------------------------
-window.removePresentationEventHandlers?.();
-
-//1. check if line or arrow is selected, if not check if frames are available, if not inform the user and terminate presentation
-let presentationPathLineEl = ea.getViewElements()
-  .filter(el=>["line","arrow"].contains(el.type) && el.customData?.slideshow)[0];
-
-const frameClones = [];
-ea.getViewElements().filter(el=>el.type==="frame").forEach(f=>frameClones.push(ea.cloneElement(f)));
-for(i=0;i<frameClones.length;i++) {
-  frameClones[i].name = getFrameName(frameClones[i].name,i);
-}
-let frames = frameClones
-  .sort((el1,el2)=> el1.name > el2.name ? 1:-1); 
-
-let presentationPathType = "line"; // "frame"
-const selectedEl = ea.getViewSelectedElement();
-let shouldHideArrowAfterPresentation = true; //this controls if the hide arrow button is available in settings
-if(presentationPathLineEl && selectedEl && ["line","arrow"].contains(selectedEl.type)) {
-  excalidrawAPI.setToast({
-    message:"Using selected line instead of hidden line. Note that there is a hidden presentation path for this drawing. Run the slideshow script without selecting any elements to access the hidden presentation path",
-    duration: 5000,
-    closable: true
-  })
-  shouldHideArrowAfterPresentation = false;
-  presentationPathLineEl = selectedEl;
-}
-if(!presentationPathLineEl) presentationPathLineEl = selectedEl;
-if(!presentationPathLineEl || !["line","arrow"].contains(presentationPathLineEl.type)) {
-	if(frames.length > 0) {
-	  presentationPathType = "frame";
-	} else {
-	  excalidrawAPI.setToast({
-	    message:"Please select the line or arrow for the presentation path or add frames.",
-	    duration: 3000,
-	    closable: true
-	  })
-	  return;
-	}
-}
-
-//---------------------------------------------
-// generate slides[] array
-//---------------------------------------------
-let slides = [];
-
-if(presentationPathType === "line") {
-	const getLineSlideRect = ({pointA, pointB}) => {
-	  const x1 = presentationPathLineEl.x+pointA[0];
-	  const y1 = presentationPathLineEl.y+pointA[1];
-	  const x2 = presentationPathLineEl.x+pointB[0];
-	  const y2 = presentationPathLineEl.y+pointB[1];
-	  return { x1, y1, x2, y2};
-	}
-	
-	const slideCount = Math.floor(presentationPathLineEl.points.length/2)-1;
-	for(i=0;i<=slideCount;i++) {
-	  slides.push(getLineSlideRect({
-	    pointA:presentationPathLineEl.points[i*2],
-	    pointB:presentationPathLineEl.points[i*2+1]
-	  }))
-	}
-}
-
-if(presentationPathType === "frame") {
-	for(frame of frames) {
-		slides.push({
-		  x1: frame.x,
-		  y1: frame.y,
-		  x2: frame.x + frame.width,
-		  y2: frame.y + frame.height
-		});
-	}
-	if(frameRenderingOriginalState.enabled) {
-  	excalidrawAPI.updateScene({
-	    appState: {
-	      frameRendering: {
-	        ...frameRenderingOriginalState,
-	        enabled: false
-	      }
-	    }
-	  });
-	}
-}
-
-//---------------------------------------
-// Toggle fullscreen
-//---------------------------------------
-let toggleFullscreenButton;
-let controlPanelEl;
-let selectSlideDropdown;
-
-const resetControlPanelElPosition = () => {
-  if(!controlPanelEl) return;
-  const top = contentEl.innerHeight; 
-  const left = contentEl.innerWidth/2; 
-  controlPanelEl.style.top = `calc(${top}px - var(--default-button-size)*2)`;
-  controlPanelEl.style.left = `calc(${left}px - var(--default-button-size)*5)`;
-  slide--;
-  navigate("fwd");
-}
-
-const waitForExcalidrawResize = async () => {
-  await sleep(100);
-	const deltaWidth = () => Math.abs(contentEl.clientWidth-excalidrawAPI.getAppState().width);
-	const deltaHeight = () => Math.abs(contentEl.clientHeight-excalidrawAPI.getAppState().height);
-	let watchdog = 0;
-	while ((deltaWidth()>50 || deltaHeight()>50) && watchdog++<20) await sleep(50); //wait for Excalidraw to resize to fullscreen
-}
-
-let preventFullscreenExit = true;
-const gotoFullscreen = async () => {
-  if(isFullscreen) return;
-  preventFullscreenExit = true;
-	if(ea.DEVICE.isMobile) {
-	  ea.viewToggleFullScreen();
-	} else {
-		await contentEl.webkitRequestFullscreen();
-	}
-	await waitForExcalidrawResize();
-	const layerUIWrapper = contentEl.querySelector(".layer-ui__wrapper");
-	if(!layerUIWrapper?.hasClass("excalidraw-hidden")) layerUIWrapper.addClass("excalidraw-hidden");
-	if(toggleFullscreenButton) toggleFullscreenButton.innerHTML = SVG_MINIMIZE;
-	resetControlPanelElPosition();
-	isFullscreen = true;
-}
-
-const exitFullscreen = async () => {
-  if(!isFullscreen) return;
-  preventFullscreenExit = true;
-  if(!ea.DEVICE.isMobile && ownerDocument?.fullscreenElement) await ownerDocument.exitFullscreen();
-  if(ea.DEVICE.isMobile) ea.viewToggleFullScreen();
-  if(toggleFullscreenButton) toggleFullscreenButton.innerHTML = SVG_MAXIMIZE;
-  await waitForExcalidrawResize();
-  resetControlPanelElPosition();
-  isFullscreen = false;
-}
-
-const toggleFullscreen = async () => {
- if (isFullscreen) {
-   await exitFullscreen();
- } else {
-	 await gotoFullscreen();
- }
-}
-
-//-----------------------------------------------------
-// hide the arrow for the duration of the presentation
-// and save the arrow color before doing so
-//-----------------------------------------------------
-let isHidden;
-let originalProps;
-const toggleArrowVisibility = async (setToHidden) => {
-	ea.clear();
-	ea.copyViewElementsToEAforEditing(ea.getViewElements().filter(el=>el.id === presentationPathLineEl.id));
-	const el = ea.getElement(presentationPathLineEl.id);
-	el.strokeColor = "transparent";
-	el.backgroundColor = "transparent";
-	const customData = el.customData;
-	if(setToHidden && shouldHideArrowAfterPresentation) {
-		el.locked = true;
-		el.customData = {
-			...customData,
-			slideshow: {
-				originalProps,
-				hidden: true
-			}
-		}
-		isHidden = true;
-	} else {
-		if(customData) delete el.customData.slideshow;
-		isHidden = false;
-	}
-	await ea.addElementsToView();
-}
-
-if(presentationPathType==="line") {
-	originalProps = presentationPathLineEl.customData?.slideshow?.hidden
-	  ? presentationPathLineEl.customData.slideshow.originalProps
-	  : {
-		  strokeColor: presentationPathLineEl.strokeColor,
-		  backgroundColor: presentationPathLineEl.backgroundColor,
-		  locked: presentationPathLineEl.locked,
-	  };
-	isHidden = presentationPathLineEl.customData?.slideshow?.hidden ?? false;
-}
-
-//-----------------------------
-// scroll-to-location functions
-//-----------------------------
-const getNavigationRect = ({ x1, y1, x2, y2, printDimensions }) => {
-  const { width, height } = printDimensions ? printDimensions : excalidrawAPI.getAppState();
-  const ratioX = width / Math.abs(x1 - x2);
-  const ratioY = height / Math.abs(y1 - y2);
-  let ratio = Math.min(Math.max(ratioX, ratioY), MAX_ZOOM);
-
-  const scaledWidth = Math.abs(x1 - x2) * ratio;
-  const scaledHeight = Math.abs(y1 - y2) * ratio;
-
-  if (scaledWidth > width || scaledHeight > height) {
-    ratio = Math.min(width / Math.abs(x1 - x2), height / Math.abs(y1 - y2));
-  }
-
-  const deltaX = (width / ratio - Math.abs(x1 - x2)) / 2;
-  const deltaY = (height / ratio - Math.abs(y1 - y2)) / 2;
-
-  return {
-    left: (x1 < x2 ? x1 : x2) - deltaX,
-    top: (y1 < y2 ? y1 : y2) - deltaY,
-    right: (x1 < x2 ? x2 : x1) + deltaX,
-    bottom: (y1 < y2 ? y2 : y1) + deltaY,
-    nextZoom: ratio,
-  };
-};
-
-const getNextSlideRect = (forward) => {
-  slide = forward
-    ? slide < slides.length-1 ? slide + 1     : 0
-    : slide <= 0            ? slides.length-1 : slide - 1;
-	return getNavigationRect(slides[slide]);
-}
-
-let busy = false;
-const scrollToNextRect = async ({left,top,right,bottom,nextZoom},steps = TRANSITION_STEP_COUNT) => {
-  const startTimer = Date.now();
-  let watchdog = 0;
-  while(busy && watchdog++<15) await sleep(100);
-  if(busy && watchdog >= 15) return;
-  busy = true;
-  excalidrawAPI.updateScene({appState:{shouldCacheIgnoreZoom:true}});
-  const {scrollX, scrollY, zoom} = excalidrawAPI.getAppState();
-  const zoomStep = (zoom.value-nextZoom)/steps;
-  const xStep = (left+scrollX)/steps;
-  const yStep = (top+scrollY)/steps;
-  let i=1;
-  while(i<=steps) {
-    excalidrawAPI.updateScene({
-      appState: {
-        scrollX:scrollX-(xStep*i),
-        scrollY:scrollY-(yStep*i),
-        zoom:{value:zoom.value-zoomStep*i},
-      }
-    });
-    const ellapsed = Date.now()-startTimer;
-    if(ellapsed > TRANSITION_DELAY) {
-      i = i<steps ? steps : steps+1;
-    } else {
-      const timeProgress = ellapsed / TRANSITION_DELAY;
-      i=Math.min(Math.round(steps*timeProgress),steps)
-      await sleep(FRAME_SLEEP);
-    }
-  }
-  excalidrawAPI.updateScene({appState:{shouldCacheIgnoreZoom:false}});
-  if(isLaserOn) {
-    excalidrawAPI.setActiveTool({type: "laser"});
-  }
-  busy = false;
-}
-
-const navigate = async (dir) => {
-  const forward = dir === "fwd";
-  const prevSlide = slide;
-  const nextRect = getNextSlideRect(forward);
-  
-  //exit if user navigates from last slide forward or first slide backward
-  const shouldExit = forward
-    ? slide<=prevSlide
-    : slide>=prevSlide;
-  if(shouldExit) {
-    exitPresentation();
-    return;
-  }
-  if(selectSlideDropdown) selectSlideDropdown.value = slide+1;
-  await scrollToNextRect(nextRect);
-  if(window.ExcalidrawSlideshow && (typeof window.ExcalidrawSlideshow.slide?.[ea.targetView.file.path] === "number")) {
-    window.ExcalidrawSlideshow.slide[ea.targetView.file.path] = slide;
-  }
-}
-
-const navigateToSlide = (slideNumber) => {
-  if(slideNumber > slides.length) slideNumber = slides.length;
-  if(slideNumber < 1) slideNumber = 1;
-  slide = slideNumber - 2;
-  navigate("fwd");
-}
-
-//--------------------------------------
-// Slideshow control panel
-//--------------------------------------
-let controlPanelFadeTimout = 0;
-const setFadeTimeout = (delay) => {
-  delay = delay ?? TRANSITION_DELAY;
-  controlPanelFadeTimeout = ownerWindow.setTimeout(()=>{
-    controlPanelFadeTimout = 0;
-    if(ownerDocument.activeElement === selectSlideDropdown) {
-      setFadeTimeout(delay);
-      return;
-    }
-	  controlPanelEl.style.opacity = FADE_LEVEL;
-  },delay);
-}
-const clearFadeTimeout = () => {
-  if(controlPanelFadeTimeout) {
-	  ownerWindow.clearTimeout(controlPanelFadeTimeout);
-	  controlPanelFadeTimeout = 0;
-  }
-  controlPanelEl.style.opacity = 1;
-}
-
-const createPresentationNavigationPanel = () => {
-  //create slideshow controlpanel container
-  const top = contentEl.innerHeight; 
-  const left = contentEl.innerWidth/2; 
-  controlPanelEl = contentEl.querySelector(".excalidraw").createDiv({
-    cls: ["excalidraw-presentation-panel"],
-    attr: {
-      style: `
-        width: fit-content;
-        z-index:5;
-        position: absolute;
-        top:calc(${top}px - var(--default-button-size)*2);
-        left:calc(${left}px - var(--default-button-size)*5);`
-    }
-  });
-  setFadeTimeout(TRANSITION_DELAY*3);
-  
-  const panelColumn = controlPanelEl.createDiv({
-    cls: "panelColumn",
-  });
-  
-	panelColumn.createDiv({
-	  cls: ["Island", "buttonList"],
-	  attr: {
-	    style: `
-	      max-width: unset;
-	      justify-content: space-between;
-	      height: calc(var(--default-button-size)*1.5);
-	      width: 100%;
-	      background: var(--island-bg-color);
-	      display: flex;
-	      align-items: center;`,
-	  }
-	}, el=>{
-	  el.createEl("style", 
-	    { text: ` select:focus { box-shadow: var(--input-shadow);} `});
-	  el.createEl("button",{
-	    attr: {
-	      style: `
-	        margin-left: calc(var(--default-button-size)*0.25);`,
-	      "aria-label": "Previous slide",
-	      title: "Previous slide"
-	    }
-	  }, button => {
-	    button.innerHTML = SVG_LEFT_ARROW;
-	    button.onclick = () => navigate("bkwd")
-	  });
-    selectSlideDropdown = el.createEl("select", {
-      attr: {
-        style: `
-          font-size: inherit;
-          background-color: var(--island-bg-color);
-          border: none;
-          color: var(--color-gray-100);
-          cursor: pointer;
-        }`,
-        title: "Navigate to slide"
-      }
-    }, selectEl => {
-	    for (let i = 0; i < slides.length; i++) {
-	      const option = document.createElement("option");
-        option.text = (presentationPathType === "frame")
-          ? `${frames[i].name}/${slides.length}`
-          : option.text = `Slide ${i + 1}/${slides.length}`;
-	      option.value = i + 1;
-	      selectEl.add(option);
-	    }
-	    selectEl.addEventListener("change", () => {
-	      const selectedSlideNumber = parseInt(selectEl.value);
-	      selectEl.blur();
-	      navigateToSlide(selectedSlideNumber);
-	    });
-	  });
-	  el.createEl("button",{
-	    attr: {
-	      title: "Next slide"
-	    },
-	  }, button => {
-	    button.innerHTML = SVG_RIGHT_ARROW;
-	    button.onclick = () => navigate("fwd");
-	  });
-	  el.createDiv({
-		  attr: {
-	      style: `
-	        width: 1px;
-	        height: var(--default-button-size);
-	        background-color: var(--default-border-color);
-	        margin: 0px auto;`
-	      }
-	    });
-	    
-	  el.createEl("button",{
-	    attr: {
-	      title: "Toggle Laser Pointer and Panning Mode"
-	    }
-	  }, button => {
-	    button.innerHTML = isLaserOn ? SVG_LASER_ON : SVG_LASER_OFF;
-	    button.onclick = () => {
-		    isLaserOn = !isLaserOn;
-		    excalidrawAPI.setActiveTool({
-		      type: isLaserOn ? "laser" : "selection"
-		    })
-		    button.innerHTML = isLaserOn ? SVG_LASER_ON : SVG_LASER_OFF;
-	    }
-	  });
-	  
-	  el.createEl("button",{
-	    attr: {
-	      title: "Re-focus current slide (shortcut: HOME)"
-	    }
-	  }, button => {
-	    button.innerHTML = SVG_REFOCUS;
-	    button.onclick = () => {
-	      debugger;
-	      slide--;
-        navigate("fwd");
-	    }
-	  });
-	  
- 	  el.createEl("button",{
-	    attr: {
-	      title: "Toggle fullscreen. If you hold ALT/OPT when starting the presentation it will not go fullscreen. (shortcut: f)"
-	    },
-	  }, button => {
-	    toggleFullscreenButton = button;
-	    button.innerHTML = isFullscreen ? SVG_MINIMIZE : SVG_MAXIMIZE;
-	    button.onclick = () => toggleFullscreen();
-	  });
-	  if(presentationPathType === "line") {
-	    if(shouldHideArrowAfterPresentation) {
-		    new ea.obsidian.ToggleComponent(el)
-		      .setValue(isHidden)
-		      .onChange(value => {
-            shouldSaveAfterThePresentation = true;
-		        if(value) {
-		          excalidrawAPI.setToast({
-						    message:"The presentation path remain hidden after the presentation. No need to select the line again. Just click the slideshow button to start the next presentation.",
-						    duration: 5000,
-						    closable: true
-						  })
-		        }
-		        toggleArrowVisibility(value);
-		      })
-		      .toggleEl.setAttribute("title","Arrow visibility. ON: hidden after presentation, OFF: visible after presentation");
-		  }
-		  el.createEl("button",{
-		    attr: {
-		      title: "Edit slide"
-		    },
-		  }, button => {
-		    button.innerHTML = SVG_EDIT;
-		    button.onclick = () => {
-		      if(shouldHideArrowAfterPresentation) toggleArrowVisibility(false);
-		      exitPresentation(true);
-		    }
-		  });
-		}
-		if(ea.DEVICE.isDesktop) {
-      el.createEl("button",{
-        attr: {
-          style: `
-            margin-right: calc(var(--default-button-size)*0.25);`,
-          title: `Print to PDF\nClick to print slides at ${PRINT_SLIDE_WIDTH}x${
-            PRINT_SLIDE_HEIGHT}\nHold SHIFT to print the presentation as displayed`
-            //${!presentationPathLineEl ? "\nHold ALT/OPT to clip frames":""}`
-        }
-      }, button => {
-        button.innerHTML = SVG_PRINTER;
-        button.onclick = (e) => printToPDF(e);
-      });
-		}
-	  el.createEl("button",{
-	    attr: {
-	      style: `
-	        margin-right: calc(var(--default-button-size)*0.25);`,
-	      title: "End presentation"
-	    }
-	  }, button => {
-	    button.innerHTML = SVG_FINISH;
-	    button.onclick = () => exitPresentation();
-	  });
-	});
-}
-
-//--------------------
-// keyboard navigation
-//--------------------
-const keydownListener = (e) => {
-  if(hostLeaf !== app.workspace.activeLeaf) return;
-  if(hostLeaf.width === 0 && hostLeaf.height === 0) return;
-  e.preventDefault();
-  switch(e.key) {
-    case "Backspace":
-    case "Escape":
-      exitPresentation();
-      break;
-    case "Space":
-    case "ArrowRight":
-    case "ArrowDown": 
-      navigate("fwd");
-      break;
-    case "ArrowLeft":
-    case "ArrowUp":
-      navigate("bkwd");
-      break;
-    case "End":
-      slide = slides.length - 2;
-      navigate("fwd");
-      break;
-    case "Home":
-      slide--;
-      navigate("fwd");
-      break;
-    case "e": 
-      if(presentationPathType !== "line") return;
-      (async ()=>{
-        await toggleArrowVisibility(false);
-        exitPresentation(true);
-      })()
-      break;
-    case "f":
-      toggleFullscreen();
-      break;
-  }
-}
-
-//---------------------
-// slideshow panel drag
-//---------------------
-let posX1 = posY1 = posX2 = posY2 = 0;
-
-const updatePosition = (deltaY = 0, deltaX = 0) => {
-  const {
-    offsetTop,
-    offsetLeft,
-    clientWidth: width,
-    clientHeight: height,
-   } = controlPanelEl;
-  controlPanelEl.style.top = (offsetTop - deltaY) + 'px';
-  controlPanelEl.style.left = (offsetLeft - deltaX) + 'px';
-}
-   
-const onPointerUp = () => {
-  ownerWindow.removeEventListener('pointermove', onDrag, true);
-}
-
-const onPointerDown = (e) => {
-	clearFadeTimeout();
-	setFadeTimeout();
-  const now = Date.now();
-  posX2 = e.clientX;
-  posY2 = e.clientY;
-  ownerWindow.addEventListener('pointermove', onDrag, true);
-}
-
-const onDrag = (e) => {
-  e.preventDefault();
-  posX1 = posX2 - e.clientX;
-  posY1 = posY2 - e.clientY;
-  posX2 = e.clientX;
-  posY2 = e.clientY;
-  updatePosition(posY1, posX1);
-}
-
-const onMouseEnter = () => {
-	clearFadeTimeout();
-}
-
-const onMouseLeave = () => {
-	setFadeTimeout();
-}
-
-const fullscreenListener = (e) => {
-  if(preventFullscreenExit) {
-	  preventFullscreenExit = false;
-    return;
-  }
-  e.preventDefault();
-  exitPresentation();
-}
-
-const initializeEventListners = () => {
-	ownerWindow.addEventListener('keydown',keydownListener);
-  controlPanelEl.addEventListener('pointerdown', onPointerDown, false);
-  controlPanelEl.addEventListener('mouseenter', onMouseEnter, false);
-  controlPanelEl.addEventListener('mouseleave', onMouseLeave, false);
-  ownerWindow.addEventListener('pointerup', onPointerUp, false);
-
-	//event listners for terminating the presentation
-	window.removePresentationEventHandlers = () => {
-	  ea.onLinkClickHook = null;
-	  controlPanelEl.removeEventListener('pointerdown', onPointerDown, false);
-	  controlPanelEl.removeEventListener('mouseenter', onMouseEnter, false);
-	  controlPanelEl.removeEventListener('mouseleave', onMouseLeave, false);
-	  controlPanelEl.parentElement?.removeChild(controlPanelEl);
-	  if(!ea.DEVICE.isMobile) {
-	    contentEl.removeEventListener('webkitfullscreenchange', fullscreenListener);
-	    contentEl.removeEventListener('fullscreenchange', fullscreenListener);
-	  }
-	  ownerWindow.removeEventListener('keydown',keydownListener);
-	  ownerWindow.removeEventListener('pointerup',onPointerUp);
-	  contentEl.querySelector(".layer-ui__wrapper")?.removeClass("excalidraw-hidden");
-	  delete window.removePresentationEventHandlers;
-	}
-
-	ea.onLinkClickHook = () => {
-    exitPresentation();
-    return true;
-  };
-  
-  if(!ea.DEVICE.isMobile) {
-    contentEl.addEventListener('webkitfullscreenchange', fullscreenListener);
-    contentEl.addEventListener('fullscreenchange', fullscreenListener);
-  }
-}
-
-//----------------------------
-// Exit presentation
-//----------------------------
-const exitPresentation = async (openForEdit = false) => {
-  //this is a hack, not sure why ea loses target view when other scripts are executed while the presentation is running
-  ea.targetView = hostView; 
-  isLaserOn = false;
-  statusBarElement.style.display = "inherit";
-  if(openForEdit) ea.targetView.preventAutozoom();
-  await exitFullscreen();
-  await waitForExcalidrawResize();
-  ea.setViewModeEnabled(false);
-  if(presentationPathType === "line") {
-	  ea.clear();
-	  ea.copyViewElementsToEAforEditing(ea.getViewElements().filter(el=>el.id === presentationPathLineEl.id));
-	  const el = ea.getElement(presentationPathLineEl.id);
-	  if(!isHidden) {
-	    el.strokeColor = originalProps.strokeColor;
-	    el.backgroundProps = originalProps.backgroundColor;
-	    el.locked = openForEdit ? false : originalProps.locked;
-	  }
-	  await ea.addElementsToView();
-	  if(!isHidden) ea.selectElementsInView([el]);
-	  if(openForEdit) {
-	    let nextRect = getNextSlideRect(--slide);
-	    const offsetW = (nextRect.right-nextRect.left)*(1-EDIT_ZOOMOUT)/2;
-	    const offsetH = (nextRect.bottom-nextRect.top)*(1-EDIT_ZOOMOUT)/2
-	    nextRect = {
-	      left: nextRect.left-offsetW,
-	      right: nextRect.right+offsetW,
-	      top: nextRect.top-offsetH,
-	      bottom: nextRect.bottom+offsetH,
-	      nextZoom: nextRect.nextZoom*EDIT_ZOOMOUT > 0.1 ? nextRect.nextZoom*EDIT_ZOOMOUT : 0.1 //0.1 is the minimu zoom value
-	    };
-	    await scrollToNextRect(nextRect,1);
-	    excalidrawAPI.startLineEditor(
-	      ea.getViewSelectedElement(),
-	      [slide*2,slide*2+1]
-	    );
-	  }
-	} else {
-	  if(frameRenderingOriginalState.enabled) {
-	  	excalidrawAPI.updateScene({
-		    appState: {
-		      frameRendering: {
-		        ...frameRenderingOriginalState,
-		        enabled: true
-		      }
-		    }
-		  });
-		}
-	}
-  window.removePresentationEventHandlers?.();
-  ownerWindow.setTimeout(()=>{
-    //Resets pointer offsets. Ugly solution. 
-    //During testing offsets were wrong after presentation, but don't know why.
-    //This should solve it even if they are wrong.
-    hostView.refreshCanvasOffset();
-    excalidrawAPI.setActiveTool({type: "selection"});
-  })
-  if(!shouldSaveAfterThePresentation) {
-    ea.targetView.clearDirty();
-  }
-}
-
-//--------------------------
-// Print to PDF
-//--------------------------
-let notice;
-let noticeEl;
-function setSingleNotice(message) {
-  if(noticeEl?.parentElement) {
-    notice.setMessage(message);
-    return;
-  }
-  notice = new Notice(message, 0);
-  noticeEl = notice.containerEl ?? notice.noticeEl;
-}
-
-function hideSingleNotice() {
-  if(noticeEl?.parentElement) {
-    notice.hide();
-  }
-}
-
-const translateToZero = ({ top, left, bottom, right }, padding) => {
-  const {topX, topY, width, height} = ea.getBoundingBox(ea.getViewElements());
-  const newTop = top - (topY - padding);
-  const newLeft = left - (topX - padding);
-  const newBottom = bottom - (topY - padding);
-  const newRight = right - (topX - padding);
-
-  return {
-    top: newTop,
-    left: newLeft,
-    bottom: newBottom,
-    right: newRight,
-  };
-}
-
-const getElementPlaceholdersForMarkerFrames = () => {
-  const viewMarkerFrames = ea.getViewElements().filter(el=>el.type === "frame" && el.frameRole === "marker");
-  if(viewMarkerFrames.length === 0) return;
-  ea.clear();
-  ea.style.opacity = 0;
-  ea.style.roughness = 0;
-	ea.style.fillStyle = "solid";
-	ea.style.backgroundColor = "black"
-	ea.style.strokeWidth = 0.01;
-
-  for (const frame of viewMarkerFrames) {
-	  ea.addRect(frame.x, frame.y, frame.width, frame.height);
-  }
-  return ea.getViewElements().concat(ea.getElements());
-}
-
-const printToPDF = async (e) => {
-  const slideWidth = e.shiftKey ? excalidrawAPI.getAppState().width : PRINT_SLIDE_WIDTH;
-  const slideHeight = e.shiftKey ? excalidrawAPI.getAppState().height : PRINT_SLIDE_HEIGHT;
-  //const shouldClipFrames = !presentationPathLineEl && e.altKey;
-  const shouldClipFrames = false;
-  //huge padding to ensure the HD window always fits the width
-  //no padding if frames are clipped
-  const padding =  shouldClipFrames ? 0 : Math.round(Math.max(slideWidth,slideHeight)/2)+10;
-  const st = ea.getExcalidrawAPI().getAppState();
-  setSingleNotice("Generating image. This can take a longer time depending on the size of the image and speed of your device");
-  const elementsOverride = getElementPlaceholdersForMarkerFrames();
-  const svg = await ea.createViewSVG({
-    withBackground: true,
-    theme: st.theme,
-    frameRendering: { enabled: shouldClipFrames, name: false, outline: false, clip: shouldClipFrames },
-    padding,
-    selectedOnly: false,
-    skipInliningFonts: false,
-    embedScene: false,
-    elementsOverride,
-  });
-  const pages = [];
-  for(i=0;i<slides.length;i++) {
-    setSingleNotice(`Generating slide ${i+1}`);
-    const s = slides[i];
-    const  { top, left, bottom, right } = translateToZero(
-      getNavigationRect({
-        ...s,
-        printDimensions: {width: slideWidth, height: slideHeight}
-      }), padding
+// Script bundle
+/* EA Script — slideshow | ea-scripts v1.0.0 */
+(() => {
+  // src/sharedUtils/i18n.ts
+  function interpolateTranslation(template, params = {}) {
+    return Object.entries(params).reduce(
+      (result, [key, value]) => result.split(`{${key}}`).join(String(value)),
+      template
     );
-    //always create the new SVG in the main Obsidian workspace (not the popout window, if present)
-    const host = window.createDiv();
-    host.innerHTML = svg.outerHTML;
-    const clonedSVG = host.firstElementChild;
-    const width = Math.abs(left-right);
-    const height = Math.abs(top-bottom);
-    clonedSVG.setAttribute("viewBox", `${left} ${top} ${width} ${height}`);
-    clonedSVG.setAttribute("width", `${width}`);
-    clonedSVG.setAttribute("height", `${height}`);
-    pages.push(clonedSVG);
   }
-  const bgColor = ea.getExcalidrawAPI().getAppState().viewBackgroundColor;
-  setSingleNotice("Creating PDF Document");
-  ea.createPDF({
-    SVG: pages,
-    scale: { fitToPage: true },
-    pageProps: {
-      dimensions: { width: slideWidth, height: slideHeight },
-      backgroundColor: bgColor,
-      margin: { left: 0, right: 0, top: 0, bottom: 0 },
-      alignment: "center"
-    }, 
-    filename: ea.targetView.file.basename + ".pdf",
-  }).then(()=>hideSingleNotice());
-}
-
-//--------------------------
-// Start presentation or open presentation settings on double click
-//--------------------------
-const start = async () => {
-  statusBarElement.style.display = "none";
-  ea.setViewModeEnabled(true);
-  const helpButton = ea.targetView.excalidrawContainer?.querySelector(".ToolIcon__icon.help-icon");
-  if(helpButton) {
-    helpButton.style.display = "none";
-  }
-  const zoomButton = ea.targetView.excalidrawContainer?.querySelector(".Stack.Stack_vertical.zoom-actions");
-  if(zoomButton) {
-    zoomButton.style.display = "none";
-  }
-  
-  createPresentationNavigationPanel();
-  initializeEventListners();
-  if(startFullscreen) {
-    await gotoFullscreen();
-  } else {
-    resetControlPanelElPosition();
-  }
-  if(presentationPathType === "line") await toggleArrowVisibility(isHidden);
-  ea.targetView.clearDirty();
-}
-
-const timestamp = Date.now();
-if(
-  window.ExcalidrawSlideshow &&
-  (window.ExcalidrawSlideshow.script === utils.scriptFile.path) &&
-  (timestamp - window.ExcalidrawSlideshow.timestamp <400)
-) {
-  if(window.ExcalidrawSlideshowStartTimer) {
-    window.clearTimeout(window.ExcalidrawSlideshowStartTimer);
-    delete window.ExcalidrawSlideshowStartTimer;
-  }
-  await start();
-} else {
-  if(window.ExcalidrawSlideshowStartTimer) {
-    window.clearTimeout(window.ExcalidrawSlideshowStartTimer);
-    delete window.ExcalidrawSlideshowStartTimer;
-  }
-  if(!window.ExcalidrawSlideshow) {
-    window.ExcalidrawSlideshow = {
-      script: utils.scriptFile.path,
-      slide: {},
+  function createTranslator(requestedLocale, catalogs, fallbackLocale = "en") {
+    const locale = requestedLocale.toLowerCase().replaceAll("_", "-");
+    const baseLocale = locale.split("-")[0] ?? locale;
+    return (key, params = {}) => {
+      const template = catalogs[locale]?.[key] ?? catalogs[baseLocale]?.[key] ?? catalogs[fallbackLocale]?.[key] ?? key;
+      return interpolateTranslation(template, params);
     };
   }
-  window.ExcalidrawSlideshow.timestamp = timestamp;
-  window.ExcalidrawSlideshow.slide[ea.targetView.file.path] = 0;
-  
-  window.ExcalidrawSlideshowStartTimer = window.setTimeout(start,500);
+
+  // src/scripts/slideshow/lang/de.ts
+  var de = {
+    requiresNewerVersion: "Dieses Skript ben\xF6tigt eine neuere Version von Excalidraw. Installiere bitte die neueste Version.",
+    noActiveView: "\xD6ffne eine Excalidraw-Zeichnung, bevor du die Pr\xE4sentation startest.",
+    cannotAccessView: "Auf die aktive Excalidraw-Ansicht konnte nicht zugegriffen werden."
+  };
+
+  // src/scripts/slideshow/lang/en.ts
+  var en = {
+    requiresNewerVersion: "This script requires a newer version of Excalidraw. Please install the latest version.",
+    autostartExplanation: 'Autostart is required for registering the "Edit Slide" button. Autostart does not mean slideshows will autostart when opening a drawing.',
+    noActiveView: "Open an Excalidraw drawing before starting the slideshow.",
+    cannotAccessView: "Could not access the active Excalidraw view.",
+    noPresentationPath: "No configured slideshow is available. Add frames or create a line presentation.",
+    selectedPathOverridesHidden: "Using the selected line instead of the hidden presentation path. Run the slideshow without selecting an element to use the hidden path.",
+    allFramesExcluded: "All frame slides are excluded. Include at least one frame before presenting.",
+    allSlidesExcluded: "All slides are excluded. Include at least one slide before presenting.",
+    sidepanelTitle: "Slideshow",
+    supportPrompt: "Enjoying Slideshow?",
+    supportLink: "Buy me a coffee.",
+    settingsTitle: "Slideshow settings",
+    settingsTransitionStepCount: "Transition step count",
+    settingsTransitionStepCountDesc: "Number of interpolation steps used when moving between slides.",
+    settingsTransitionDelay: "Transition duration (ms)",
+    settingsTransitionDelayDesc: "Approximate duration of the camera transition between slides.",
+    settingsFrameSleep: "Transition frame sleep (ms)",
+    settingsFrameSleepDesc: "Delay yielded between individual camera-transition frames.",
+    settingsEditZoomOut: "Edit zoom factor",
+    settingsEditZoomOutDesc: "Zoom multiplier used when opening a slide for editing. *100[%]",
+    settingsFadeLevel: "Presentation fade level",
+    settingsFadeLevelDesc: "Opacity level used when fading presentation controls. *100[%]",
+    settingsPrintSlideWidth: "Slide width",
+    settingsPrintSlideWidthDesc: "Presentation/PDF width. Sidepanel previews use this aspect ratio.",
+    settingsPrintSlideHeight: "Slide height",
+    settingsPrintSlideHeightDesc: "Presentation/PDF height. Sidepanel previews use this aspect ratio.",
+    settingsMaxZoom: "Maximum zoom",
+    settingsMaxZoomDesc: "Maximum zoom level",
+    settingsSave: "Save",
+    settingsResetDefaults: "Reset defaults",
+    settingsCancel: "Cancel",
+    settingsSaved: "Slideshow settings saved.",
+    settingsSaveFailed: "Could not save slideshow settings.",
+    quickGuideTitle: "Slideshow quick guide",
+    quickGuideButton: "Open slideshow quick guide",
+    quickGuideShortcutsTitle: "Script button shortcuts",
+    quickGuideClick: "Click \u2014 start the slideshow in fullscreen mode.",
+    quickGuideWindowed: "Option/Alt+click \u2014 start the slideshow in a window.",
+    quickGuideEditor: "Command/Ctrl+click \u2014 open the slideshow editor sidepanel.",
+    quickGuideResumeFullscreen: "Shift+click \u2014 continue the slideshow in fullscreen mode.",
+    quickGuideResumeWindowed: "Shift+Option/Alt+click \u2014 continue the slideshow in a window.",
+    quickGuideAuthoringTitle: "Building a slideshow",
+    quickGuideFrameSlides: "Frame slides use the drawing's frames. Reorder slides, exclude frames, and edit slide content from the sorter.",
+    quickGuideLineSlides: "Line slides follow consecutive point pairs on a configured presentation line, which is useful for free-form camera paths.",
+    quickGuideMarkerFrames: "Marker frames are ideal slideshow markers: they define a slide without changing the visual grouping of the drawing.",
+    quickGuideAnimations: "Frame slides can reveal elements or groups in a sequence using appear, fade, slide-in, zoom-in, and timed animation steps.",
+    quickGuideNotes: "Add presenter notes per slide. With a second display, presenter mode shows notes and the next slide separately from the audience view.",
+    startPresentation: "Start presentation",
+    startFromBeginning: "From beginning",
+    presentationStartOptions: "Presentation start options",
+    presentationSettings: "Presentation settings",
+    startWithPresenterView: "With presenter notes",
+    startFromCurrentSlide: "Current slide",
+    startFullscreen: "Start fullscreen",
+    startCurrentWindow: "Start in current window",
+    startMode: "Start position",
+    startModeStart: "Start",
+    startModeResume: "Resume",
+    startModeCurrent: "Current",
+    windowMode: "Presentation window",
+    windowModeFullscreen: "Fullscreen",
+    windowModeWindowed: "Windowed",
+    notesMode: "Presenter mode",
+    notesModeWithNotes: "With Notes",
+    notesModeSlidesOnly: "Slides only",
+    presentationDisplay: "Presentation display",
+    presenterDisplay: "Notes display",
+    primaryDisplay: "Primary",
+    displayLabel: "Display {number}",
+    continuePresentation: "Resume presentation",
+    startFromSelectedSlide: "Start presentation from selected slide",
+    selectedSlideNotPresentable: "The selected slide is excluded from this presentation.",
+    noSlides: "No slideshow is available in this drawing.",
+    noActiveDrawing: "Focus an Excalidraw drawing to edit its slideshow.",
+    noEligibleSlides: "No eligible slides selected.",
+    frameDeck: "Frame slideshow",
+    lineDeck: "Line slideshow",
+    linePresentationDefaultName: "Line presentation",
+    createLinePresentation: "Create a presentation from the selected line",
+    linePresentationSettings: "Line presentation settings",
+    linePresentationName: "Presentation name",
+    removeLinePresentation: "Remove presentation",
+    removeLinePresentationConfirm: "Remove slideshow metadata from this line? The line and its drawing content will remain unchanged.",
+    presentationType: "Presentation type",
+    presentationTypeHint: "Choose whether this drawing presents its frames or presentation path.",
+    slideCount: "{count} slides",
+    visibleSlideCount: "{visible} of {total} included",
+    dragSlide: "Drag to reorder slide",
+    moveSlideUp: "Move slide up",
+    moveSlideDown: "Move slide down",
+    includeSlide: "Include slide in presentation",
+    excludeSlide: "Exclude slide from presentation",
+    notesPresent: "Notes",
+    animationCount: "{count} anims",
+    editAnimations: "Edit animations",
+    animationCheckpoint3: "Animation editing is available for frame slides.",
+    animationEditorTitle: "Animations \u2014 {title}",
+    closeAnimationEditor: "Close animation editor",
+    animationSelectionHint: "Select elements or groups in the drawing, then configure and add them as a build step.",
+    animationOutsideFrameIgnored: "Ignored {count} selected item(s) outside this frame.",
+    animationTargets: "Targets",
+    animationNoTargets: "Select elements or groups in this frame.",
+    animationGroupTarget: "Group {id}",
+    animationElementTarget: "{type} {id}",
+    removeAnimationTarget: "Remove target",
+    animationEffect: "Effect",
+    animationEffectAppear: "Appear",
+    animationEffectFade: "Fade",
+    animationEffectSlide: "Slide in",
+    animationEffectZoom: "Zoom in",
+    animationTrigger: "Trigger",
+    animationTriggerAdvance: "On advance",
+    animationTriggerDelay: "After delay",
+    animationDelayMs: "Delay (ms)",
+    animationDurationMs: "Duration (ms)",
+    animationDirection: "Direction",
+    animationDirectionLeft: "From left",
+    animationDirectionRight: "From right",
+    animationDirectionUp: "From top",
+    animationDirectionDown: "From bottom",
+    addAnimationStep: "Add step",
+    updateAnimationStep: "Update step",
+    newAnimationStep: "New step",
+    previewAnimation: "Preview",
+    animationSequence: "Animation sequence ({count})",
+    animationNoSteps: "No animation steps yet.",
+    animationStepSummary: "{number}. {effect} \xB7 {targets} target(s)",
+    moveAnimationStepUp: "Move animation step up",
+    moveAnimationStepDown: "Move animation step down",
+    previewAnimationStep: "Preview animation step",
+    deleteAnimationStep: "Delete animation step",
+    animationSaveFailed: "Could not save animation metadata.",
+    notesHeading: "Presenter notes",
+    showPresenterNotes: "Show presenter notes",
+    hidePresenterNotes: "Hide presenter notes",
+    notesPlaceholder: "Add presenter notes for this slide\u2026",
+    notesHint: "Notes support Markdown and are saved automatically.",
+    lineReorderBound: "This presentation path is an arrow. The arrow has a bound start or end. Slides reordering is disabled until you unbind both endpoints.",
+    lineAnimationUnsupported: "Element animation currently requires frame-based slides because frames provide stable slide membership.",
+    showPresentationPath: "Show presentation path",
+    hidePresentationPath: "Hide presentation path",
+    editLineSlide: "Edit this line slide",
+    editLineSlideFailed: "Could not open this line slide for editing.",
+    reorderFailed: "Could not reorder the slide.",
+    metadataSaveFailed: "Could not save slideshow metadata.",
+    zoomSlide: "Zoom editor to this slide",
+    slideLabel: "Slide {number}",
+    slideNumberAndTitle: "{number}. {title}",
+    presentationSlideTitle: "{title} ({number}/{total})",
+    openSlideshowPanel: "Open slideshow panel",
+    editSlideshow: "Edit slideshow",
+    openPanelEndsPresentation: "End presentation and open slideshow panel",
+    switchToFrameSlideshow: "Switch to frame slideshow",
+    switchToLineSlideshow: "Switch to line slideshow",
+    previousSlide: "Previous slide",
+    nextSlide: "Next slide",
+    navigateToSlide: "Navigate to slide",
+    toggleLaser: "Toggle laser pointer and panning mode",
+    refocusSlide: "Re-focus current slide (shortcut: HOME)",
+    toggleFullscreen: "Toggle fullscreen (shortcut: F)",
+    pathVisibility: "Arrow visibility. ON: hidden after presentation, OFF: visible after presentation",
+    keepPresentationPathVisible: "Keep presentation path visible after presentation",
+    keepPresentationPathHidden: "Keep presentation path hidden after presentation",
+    editSlide: "Edit slide",
+    printPdf: "Print to PDF\nClick to print slides at {width}x{height}\nHold SHIFT to print the presentation as displayed",
+    endPresentation: "End presentation",
+    pathWillRemainHidden: "The presentation path will remain hidden after the presentation. Next time, start the slideshow without selecting the line.",
+    invalidSlide: "The slideshow presentation path does not contain a valid slide.",
+    generatingImage: "Generating image. This can take longer depending on drawing size and device speed.",
+    generatingSlide: "Generating slide {number}",
+    creatingPdf: "Creating PDF document",
+    presenterViewTitle: "Presenter view",
+    presenterView: "Open presenter view",
+    presenterViewDesktopOnly: "Presenter view is available on desktop only.",
+    presenterViewOpenFailed: "Could not open presenter view.",
+    presenterCurrentSlide: "Current slide",
+    presenterSlideCounter: "Slide {number} of {total}",
+    presenterNextSlide: "Next slide",
+    presenterNextBuild: "Next animation",
+    presenterNotes: "Presenter notes",
+    presenterNoNotes: "No presenter notes for this slide.",
+    presenterAnimationProgress: "Build {completed} of {total}",
+    presenterNoAnimations: "No animation builds",
+    presenterEnd: "End of presentation",
+    presenterClose: "Close presenter view",
+    presenterNotesFocusLayout: "Prioritize presenter notes",
+    presenterStandardLayout: "Use standard presenter layout"
+  };
+
+  // src/scripts/slideshow/lang/es.ts
+  var es = {
+    requiresNewerVersion: "Este script requiere una versi\xF3n m\xE1s reciente de Excalidraw. Instala la \xFAltima versi\xF3n.",
+    noActiveView: "Abre un dibujo de Excalidraw antes de iniciar la presentaci\xF3n.",
+    cannotAccessView: "No se pudo acceder a la vista activa de Excalidraw."
+  };
+
+  // src/scripts/slideshow/lang/fr.ts
+  var fr = {
+    requiresNewerVersion: "Ce script n\xE9cessite une version plus r\xE9cente d\u2019Excalidraw. Installez la derni\xE8re version.",
+    noActiveView: "Ouvrez un dessin Excalidraw avant de d\xE9marrer le diaporama.",
+    cannotAccessView: "Impossible d\u2019acc\xE9der \xE0 la vue Excalidraw active."
+  };
+
+  // src/scripts/slideshow/lang/ru.ts
+  var ru = {
+    requiresNewerVersion: "\u0414\u043B\u044F \u044D\u0442\u043E\u0433\u043E \u0441\u043A\u0440\u0438\u043F\u0442\u0430 \u0442\u0440\u0435\u0431\u0443\u0435\u0442\u0441\u044F \u0431\u043E\u043B\u0435\u0435 \u043D\u043E\u0432\u0430\u044F \u0432\u0435\u0440\u0441\u0438\u044F Excalidraw. \u0423\u0441\u0442\u0430\u043D\u043E\u0432\u0438\u0442\u0435 \u043F\u043E\u0441\u043B\u0435\u0434\u043D\u044E\u044E \u0432\u0435\u0440\u0441\u0438\u044E.",
+    noActiveView: "\u041E\u0442\u043A\u0440\u043E\u0439\u0442\u0435 \u0440\u0438\u0441\u0443\u043D\u043E\u043A Excalidraw \u043F\u0435\u0440\u0435\u0434 \u0437\u0430\u043F\u0443\u0441\u043A\u043E\u043C \u043F\u0440\u0435\u0437\u0435\u043D\u0442\u0430\u0446\u0438\u0438.",
+    cannotAccessView: "\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u043F\u043E\u043B\u0443\u0447\u0438\u0442\u044C \u0434\u043E\u0441\u0442\u0443\u043F \u043A \u0430\u043A\u0442\u0438\u0432\u043D\u043E\u043C\u0443 \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u044E Excalidraw."
+  };
+
+  // src/scripts/slideshow/lang/zh-cn.ts
+  var zhCn = {
+    requiresNewerVersion: "\u6B64\u811A\u672C\u9700\u8981\u8F83\u65B0\u7248\u672C\u7684 Excalidraw\u3002\u8BF7\u5B89\u88C5\u6700\u65B0\u7248\u672C\u3002",
+    noActiveView: "\u8BF7\u5148\u6253\u5F00 Excalidraw \u7ED8\u56FE\uFF0C\u518D\u5F00\u59CB\u5E7B\u706F\u7247\u653E\u6620\u3002",
+    cannotAccessView: "\u65E0\u6CD5\u8BBF\u95EE\u5F53\u524D\u7684 Excalidraw \u89C6\u56FE\u3002"
+  };
+
+  // src/scripts/slideshow/lang/index.ts
+  var CATALOGS = { en, de, es, fr, ru, "zh-cn": zhCn };
+  function createSlideshowTranslator(locale) {
+    return createTranslator(locale, CATALOGS);
+  }
+
+  // src/scripts/slideshow/desktopDisplays.ts
+  var DEVICE_KEY_STORAGE = "excalidraw-slideshow-device-key";
+  function getRemote(win) {
+    const rendererWindow = win;
+    try {
+      const contextRemote = rendererWindow.require?.("@electron/remote");
+      if (contextRemote?.getCurrentWindow) return contextRemote;
+    } catch {
+    }
+    return rendererWindow.electron?.remote ?? null;
+  }
+  function geometryForWindow(win) {
+    return {
+      screenX: Number.isFinite(win.screenX) ? win.screenX : 0,
+      screenY: Number.isFinite(win.screenY) ? win.screenY : 0,
+      outerWidth: Number.isFinite(win.outerWidth) ? Math.max(win.outerWidth, 1) : 1,
+      outerHeight: Number.isFinite(win.outerHeight) ? Math.max(win.outerHeight, 1) : 1
+    };
+  }
+  function geometryScore(candidate, geometry) {
+    const bounds = candidate.getBounds();
+    return Math.abs(bounds.x - geometry.screenX) * 2 + Math.abs(bounds.y - geometry.screenY) * 2 + Math.abs(bounds.width - geometry.outerWidth) + Math.abs(bounds.height - geometry.outerHeight);
+  }
+  function chooseClosestNativeWindow(windows, geometry) {
+    if (windows.length === 0) return null;
+    let best = null;
+    let bestScore = Number.POSITIVE_INFINITY;
+    for (const candidate of windows) {
+      const score = geometryScore(candidate, geometry);
+      if (score < bestScore) {
+        bestScore = score;
+        best = candidate;
+      }
+    }
+    return best;
+  }
+  function getNativeWindow(win) {
+    const remote = getRemote(win);
+    if (!remote) return null;
+    try {
+      const current = remote.getCurrentWindow();
+      const candidates = remote.BrowserWindow?.getAllWindows?.() ?? [];
+      if (candidates.length === 0) return current;
+      const geometry = geometryForWindow(win);
+      const closest = chooseClosestNativeWindow(candidates, geometry);
+      if (!closest) return current;
+      const currentScore = geometryScore(current, geometry);
+      const closestScore = geometryScore(closest, geometry);
+      return closestScore + 80 < currentScore ? closest : current;
+    } catch {
+      try {
+        return remote.getCurrentWindow();
+      } catch {
+        return null;
+      }
+    }
+  }
+  function getNativeWindowId(window2) {
+    const propertyId = window2.id;
+    if (typeof propertyId === "number" && Number.isFinite(propertyId)) return propertyId;
+    const legacyId = window2.getId?.();
+    return typeof legacyId === "number" && Number.isFinite(legacyId) ? legacyId : null;
+  }
+  function getNativeWindowById(remote, id) {
+    if (id === null) return null;
+    try {
+      const direct = remote.BrowserWindow?.fromId?.(id);
+      if (direct) return direct;
+      return remote.BrowserWindow?.getAllWindows?.().find(
+        (candidate) => getNativeWindowId(candidate) === id
+      ) ?? null;
+    } catch {
+      return null;
+    }
+  }
+  function captureWindowPlacement(win) {
+    try {
+      const remote = getRemote(win);
+      const screen = remote?.screen;
+      if (!remote || !screen) {
+        return null;
+      }
+      const nativeWindow = getNativeWindow(win);
+      if (!nativeWindow) {
+        return null;
+      }
+      const bounds = nativeWindow.getBounds();
+      const snapshot = {
+        windowId: getNativeWindowId(nativeWindow),
+        sourceDisplayId: screen.getDisplayMatching(bounds).id,
+        bounds: { ...bounds },
+        maximized: nativeWindow.isMaximized?.() ?? false
+      };
+      return snapshot;
+    } catch {
+      return null;
+    }
+  }
+  function nativeWindowIdentity(window2) {
+    const id = getNativeWindowId(window2);
+    if (id !== null) return `id:${id}`;
+    const bounds = window2.getBounds();
+    return `title:${window2.getTitle?.() ?? ""}|${bounds.x},${bounds.y},${bounds.width},${bounds.height}`;
+  }
+  function resolveSameNativeWindow(host, candidate) {
+    const hostNative = getNativeWindow(host);
+    const candidateNative = getNativeWindow(candidate);
+    if (!hostNative || !candidateNative) return null;
+    if (hostNative === candidateNative) return true;
+    const hostId = getNativeWindowId(hostNative);
+    const candidateId = getNativeWindowId(candidateNative);
+    if (hostId !== null && candidateId !== null) return hostId === candidateId;
+    return nativeWindowIdentity(hostNative) === nativeWindowIdentity(candidateNative);
+  }
+  function toDisplay(display, primaryId, index) {
+    const workArea = display.workArea ?? display.bounds;
+    const label = display.label?.trim() ?? "";
+    return {
+      id: display.id,
+      label,
+      index,
+      bounds: { ...display.bounds },
+      workArea: { ...workArea },
+      primary: display.id === primaryId
+    };
+  }
+  function getSlideshowDeviceKey(win) {
+    try {
+      const existing = win.localStorage?.getItem(DEVICE_KEY_STORAGE)?.trim();
+      if (existing) return existing;
+      const generated = typeof win.crypto?.randomUUID === "function" ? win.crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+      win.localStorage?.setItem(DEVICE_KEY_STORAGE, generated);
+      return generated;
+    } catch {
+      const nav = win.navigator;
+      return `fallback-${nav.platform || "desktop"}-${nav.userAgent.length}`;
+    }
+  }
+  function getSlideshowDisplayIdentity(display) {
+    const label = display.label.trim().toLowerCase();
+    return JSON.stringify([
+      label,
+      display.bounds.width,
+      display.bounds.height,
+      display.primary
+    ]);
+  }
+  function getSlideshowDisplayConfigurationKey(displays) {
+    if (displays.length === 0) return "none";
+    return JSON.stringify(displays.map(getSlideshowDisplayIdentity).sort());
+  }
+  function resolveSlideshowDisplayTarget(displays, preferredId, preferredIdentity) {
+    if (preferredId !== null && displays.some((display) => display.id === preferredId)) {
+      return preferredId;
+    }
+    if (!preferredIdentity) return null;
+    return displays.find((display) => getSlideshowDisplayIdentity(display) === preferredIdentity)?.id ?? null;
+  }
+  function getAvailableDisplays(win) {
+    try {
+      const screen = getRemote(win)?.screen;
+      if (!screen) return [];
+      const primaryId = screen.getPrimaryDisplay().id;
+      return screen.getAllDisplays().map((display, index) => toDisplay(display, primaryId, index));
+    } catch {
+      return [];
+    }
+  }
+  function onDisplayConfigurationChanged(win, callback) {
+    const screen = getRemote(win)?.screen;
+    if (!screen?.on) return () => void 0;
+    const events = ["display-added", "display-removed", "display-metrics-changed"];
+    const listener = () => callback();
+    try {
+      for (const event of events) screen.on(event, listener);
+    } catch {
+      return () => void 0;
+    }
+    return () => {
+      for (const event of events) {
+        try {
+          if (screen.off) screen.off(event, listener);
+          else screen.removeListener?.(event, listener);
+        } catch {
+        }
+      }
+    };
+  }
+  function getCurrentDisplayId(win) {
+    try {
+      const remote = getRemote(win);
+      const screen = remote?.screen;
+      if (!remote || !screen) return null;
+      const nativeWindow = getNativeWindow(win);
+      return nativeWindow ? screen.getDisplayMatching(nativeWindow.getBounds()).id : null;
+    } catch {
+      return null;
+    }
+  }
+  function chooseDefaultDisplayTargets(displays, currentDisplayId) {
+    if (displays.length === 0) {
+      return { presentationDisplayId: null, presenterDisplayId: null };
+    }
+    const presentation = displays.find((display) => display.id === currentDisplayId) ?? displays.find((display) => display.primary) ?? displays[0];
+    const presenter = displays.find((display) => display.id !== presentation?.id) ?? presentation;
+    return {
+      presentationDisplayId: presentation?.id ?? null,
+      presenterDisplayId: presenter?.id ?? null
+    };
+  }
+  async function waitForWindowOnDisplay(win, displayId, timeoutMs = 2e3) {
+    const started = Date.now();
+    while (Date.now() - started <= timeoutMs) {
+      if (getCurrentDisplayId(win) === displayId) {
+        return true;
+      }
+      await new Promise((resolve) => win.setTimeout(resolve, 75));
+    }
+    return false;
+  }
+  function moveWindowToDisplay(win, displayId, fillWorkArea = true, moveIfAlreadyOnDisplay = true) {
+    if (displayId === null || displayId === void 0) return null;
+    try {
+      const remote = getRemote(win);
+      const screen = remote?.screen;
+      if (!remote || !screen) {
+        return null;
+      }
+      const target = screen.getAllDisplays().find((display) => display.id === displayId);
+      if (!target) {
+        return null;
+      }
+      const nativeWindow = getNativeWindow(win);
+      if (!nativeWindow) {
+        return null;
+      }
+      const currentBounds = nativeWindow.getBounds();
+      const currentDisplay = screen.getDisplayMatching(currentBounds);
+      const windowId = getNativeWindowId(nativeWindow);
+      if (currentDisplay.id === displayId && !moveIfAlreadyOnDisplay) {
+        return null;
+      }
+      const snapshot = {
+        windowId,
+        sourceDisplayId: currentDisplay.id,
+        bounds: { ...currentBounds },
+        maximized: nativeWindow.isMaximized?.() ?? false
+      };
+      if (snapshot.maximized) nativeWindow.unmaximize?.();
+      const area = target.workArea ?? target.bounds;
+      const requestedBounds = fillWorkArea ? { ...area } : {
+        x: area.x + Math.round(area.width * 0.08),
+        y: area.y + Math.round(area.height * 0.08),
+        width: Math.max(Math.round(area.width * 0.84), 480),
+        height: Math.max(Math.round(area.height * 0.84), 360)
+      };
+      nativeWindow.setBounds(requestedBounds, false);
+      const actual = nativeWindow.getBounds();
+      return snapshot;
+    } catch {
+      return null;
+    }
+  }
+  function rectsOverlap(a, b) {
+    return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+  }
+  function safeRestoreBounds(snapshot, displays, primary) {
+    if (displays.some((display) => rectsOverlap(snapshot.bounds, display.bounds))) {
+      return { ...snapshot.bounds };
+    }
+    const source = displays.find((display) => display.id === snapshot.sourceDisplayId) ?? primary;
+    const area = source.workArea ?? source.bounds;
+    const width = Math.min(Math.max(snapshot.bounds.width, 480), area.width);
+    const height = Math.min(Math.max(snapshot.bounds.height, 360), area.height);
+    return {
+      x: area.x + Math.max(0, Math.round((area.width - width) / 2)),
+      y: area.y + Math.max(0, Math.round((area.height - height) / 2)),
+      width,
+      height
+    };
+  }
+  function resolveCapturedNativeWindow(win, snapshot) {
+    const remote = getRemote(win);
+    const screen = remote?.screen;
+    if (!remote || !screen) return null;
+    const nativeWindow = getNativeWindowById(remote, snapshot.windowId) ?? (snapshot.windowId === null ? getNativeWindow(win) : null);
+    return nativeWindow ? { remote, screen, nativeWindow } : null;
+  }
+  function applyRestorePlacement(screen, nativeWindow, snapshot) {
+    const requested = safeRestoreBounds(
+      snapshot,
+      screen.getAllDisplays(),
+      screen.getPrimaryDisplay()
+    );
+    if (nativeWindow.isMaximized?.()) nativeWindow.unmaximize?.();
+    nativeWindow.setBounds(requested, false);
+    if (snapshot.maximized) nativeWindow.maximize?.();
+    return requested;
+  }
+  function placementNeedsRepair(screen, nativeWindow, snapshot) {
+    const bounds = nativeWindow.getBounds();
+    const displays = screen.getAllDisplays();
+    const visible = displays.some((display) => rectsOverlap(bounds, display.bounds));
+    if (!visible) return true;
+    if (snapshot.sourceDisplayId === null) return false;
+    return screen.getDisplayMatching(bounds).id !== snapshot.sourceDisplayId;
+  }
+  function restoreWindowPlacement(win, snapshot) {
+    if (!snapshot) return;
+    try {
+      const resolved = resolveCapturedNativeWindow(win, snapshot);
+      if (!resolved) {
+        return;
+      }
+      const { screen, nativeWindow } = resolved;
+      applyRestorePlacement(screen, nativeWindow, snapshot);
+    } catch {
+    }
+  }
+  async function restoreWindowPlacementStable(win, snapshot, timeoutMs = 2400, monitorMs = 900) {
+    if (!snapshot) return;
+    const resolved = resolveCapturedNativeWindow(win, snapshot);
+    if (!resolved) {
+      return;
+    }
+    const { screen, nativeWindow } = resolved;
+    const started = Date.now();
+    while (nativeWindow.isFullScreen?.() && Date.now() - started < timeoutMs) {
+      await new Promise((resolve) => win.setTimeout(resolve, 75));
+    }
+    restoreWindowPlacement(win, snapshot);
+    const monitorStarted = Date.now();
+    while (Date.now() - monitorStarted < monitorMs) {
+      await new Promise((resolve) => win.setTimeout(resolve, 125));
+      if (nativeWindow.isFullScreen?.()) continue;
+      if (!placementNeedsRepair(screen, nativeWindow, snapshot)) continue;
+      applyRestorePlacement(screen, nativeWindow, snapshot);
+    }
+  }
+
+  // src/scripts/slideshow/icons.ts
+  function iconMarkup(ea2, iconName) {
+    return ea2.obsidian.getIcon(iconName)?.outerHTML ?? "";
+  }
+  function getSlideshowIcons(ea2) {
+    return {
+      finish: iconMarkup(ea2, "lucide-x"),
+      rightArrow: iconMarkup(ea2, "lucide-arrow-right"),
+      leftArrow: iconMarkup(ea2, "lucide-arrow-left"),
+      edit: iconMarkup(ea2, "lucide-pencil"),
+      maximize: iconMarkup(ea2, "lucide-maximize"),
+      minimize: iconMarkup(ea2, "lucide-minimize"),
+      currentWindow: iconMarkup(ea2, "lucide-app-window"),
+      laserOn: iconMarkup(ea2, "lucide-hand"),
+      laserOff: iconMarkup(ea2, "lucide-wand"),
+      printer: iconMarkup(ea2, "lucide-printer"),
+      refocus: iconMarkup(ea2, "lucide-scan-eye"),
+      gripVertical: iconMarkup(ea2, "lucide-grip-vertical"),
+      chevronUp: iconMarkup(ea2, "lucide-chevron-up"),
+      chevronDown: iconMarkup(ea2, "lucide-chevron-down"),
+      eye: iconMarkup(ea2, "lucide-eye"),
+      eyeOff: iconMarkup(ea2, "lucide-eye-off"),
+      sparkles: iconMarkup(ea2, "lucide-sparkles"),
+      notebookPen: iconMarkup(ea2, "lucide-notebook-pen"),
+      play: iconMarkup(ea2, "lucide-play"),
+      continuePresentation: iconMarkup(ea2, "lucide-circle-play"),
+      presentation: iconMarkup(ea2, "lucide-presentation"),
+      plus: iconMarkup(ea2, "lucide-plus"),
+      trash: iconMarkup(ea2, "lucide-trash-2"),
+      close: iconMarkup(ea2, "lucide-x"),
+      settings: iconMarkup(ea2, "lucide-settings"),
+      info: iconMarkup(ea2, "info"),
+      frameSlideshow: iconMarkup(ea2, "lucide-frame"),
+      lineSlideshow: iconMarkup(ea2, "lucide-route"),
+      moreHorizontal: iconMarkup(ea2, "lucide-ellipsis")
+    };
+  }
+
+  // src/sharedUtils/presentationGeometry.ts
+  function getPresentationFrameName(name, index) {
+    return name ?? `Frame ${(index + 1).toString().padStart(2, "0")}`;
+  }
+  function getNavigationRect(slide, dimensions, maxZoom) {
+    const { x1, y1, x2, y2 } = slide;
+    const { width, height } = dimensions;
+    const ratioX = width / Math.abs(x1 - x2);
+    const ratioY = height / Math.abs(y1 - y2);
+    let ratio = Math.min(Math.max(ratioX, ratioY), maxZoom);
+    const scaledWidth = Math.abs(x1 - x2) * ratio;
+    const scaledHeight = Math.abs(y1 - y2) * ratio;
+    if (scaledWidth > width || scaledHeight > height) {
+      ratio = Math.min(width / Math.abs(x1 - x2), height / Math.abs(y1 - y2));
+    }
+    const deltaX = (width / ratio - Math.abs(x1 - x2)) / 2;
+    const deltaY = (height / ratio - Math.abs(y1 - y2)) / 2;
+    return {
+      left: Math.min(x1, x2) - deltaX,
+      top: Math.min(y1, y2) - deltaY,
+      right: Math.max(x1, x2) + deltaX,
+      bottom: Math.max(y1, y2) + deltaY,
+      nextZoom: ratio
+    };
+  }
+
+  // src/scripts/slideshow/slideshowMetadata.ts
+  var FRAME_SCHEMA_VERSION = 2;
+  var LINE_SCHEMA_VERSION = 2;
+  var animationEffects = /* @__PURE__ */ new Set(["appear", "fade", "slide", "zoom"]);
+  var animationTriggers = /* @__PURE__ */ new Set(["advance", "after-delay"]);
+  var animationDirections = /* @__PURE__ */ new Set(["left", "right", "up", "down"]);
+  function isRecord(value) {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+  }
+  function isNonEmptyString(value) {
+    return typeof value === "string" && value.length > 0;
+  }
+  function isOptionalNonNegativeNumber(value) {
+    return value === void 0 || typeof value === "number" && Number.isFinite(value) && value >= 0;
+  }
+  function normalizeNotes(value) {
+    if (typeof value !== "string" || value.trim().length === 0) {
+      return void 0;
+    }
+    return value;
+  }
+  function readOriginalPathProperties(value) {
+    if (!isRecord(value)) {
+      return null;
+    }
+    if (typeof value.strokeColor !== "string" || typeof value.backgroundColor !== "string" || typeof value.locked !== "boolean") {
+      return null;
+    }
+    return {
+      strokeColor: value.strokeColor,
+      backgroundColor: value.backgroundColor,
+      locked: value.locked
+    };
+  }
+  function readAnimationTarget(value) {
+    if (!isRecord(value) || !isNonEmptyString(value.id)) {
+      return null;
+    }
+    if (value.type === "element" || value.type === "group") {
+      return { type: value.type, id: value.id };
+    }
+    return null;
+  }
+  function readAnimationStep(value) {
+    if (!isRecord(value) || !isNonEmptyString(value.id) || !Array.isArray(value.targets)) {
+      return null;
+    }
+    if (!animationEffects.has(value.effect)) {
+      return null;
+    }
+    if (!animationTriggers.has(value.trigger)) {
+      return null;
+    }
+    if (!isOptionalNonNegativeNumber(value.delayMs) || !isOptionalNonNegativeNumber(value.durationMs)) {
+      return null;
+    }
+    if (value.direction !== void 0 && !animationDirections.has(value.direction)) {
+      return null;
+    }
+    const targets = value.targets.map(readAnimationTarget);
+    if (targets.length === 0 || targets.some((target) => target === null)) {
+      return null;
+    }
+    const result = {
+      id: value.id,
+      targets,
+      effect: value.effect,
+      trigger: value.trigger
+    };
+    if (value.delayMs !== void 0) result.delayMs = value.delayMs;
+    if (value.durationMs !== void 0) result.durationMs = value.durationMs;
+    if (value.direction !== void 0) result.direction = value.direction;
+    return result;
+  }
+  function readAnimation(value) {
+    if (value === void 0) {
+      return void 0;
+    }
+    if (!isRecord(value) || !Array.isArray(value.steps)) {
+      return null;
+    }
+    const steps = value.steps.map(readAnimationStep);
+    if (steps.some((step) => step === null)) {
+      return null;
+    }
+    return { steps };
+  }
+  function getRawSlideshowMetadata(customData) {
+    return isRecord(customData) ? customData.slideshow : void 0;
+  }
+  function hasFrameSlideshowDeclaration(customData) {
+    const value = getRawSlideshowMetadata(customData);
+    if (!isRecord(value) || value.schemaVersion !== FRAME_SCHEMA_VERSION || value.kind !== "frame") {
+      return false;
+    }
+    if (value.order !== void 0) return readFrameSlideshowData(customData) !== null;
+    return Object.keys(value).every((key) => key === "schemaVersion" || key === "kind");
+  }
+  function readFrameSlideshowData(customData) {
+    const value = getRawSlideshowMetadata(customData);
+    if (!isRecord(value) || value.schemaVersion !== FRAME_SCHEMA_VERSION || value.kind !== "frame") {
+      return null;
+    }
+    if (typeof value.order !== "number" || !Number.isInteger(value.order) || value.order < 0) {
+      return null;
+    }
+    if (value.excluded !== void 0 && typeof value.excluded !== "boolean") {
+      return null;
+    }
+    if (value.notes !== void 0 && typeof value.notes !== "string") {
+      return null;
+    }
+    const animation = readAnimation(value.animation);
+    if (animation === null) {
+      return null;
+    }
+    const result = {
+      schemaVersion: FRAME_SCHEMA_VERSION,
+      kind: "frame",
+      order: value.order
+    };
+    if (value.excluded !== void 0) result.excluded = value.excluded;
+    const notes = normalizeNotes(value.notes);
+    if (notes !== void 0) result.notes = notes;
+    if (animation !== void 0) result.animation = animation;
+    return result;
+  }
+  function readLegacyLineSlideshowData(customData) {
+    const value = getRawSlideshowMetadata(customData);
+    if (!isRecord(value) || value.schemaVersion !== void 0 || value.kind !== void 0) {
+      return null;
+    }
+    const originalProps = readOriginalPathProperties(value.originalProps);
+    if (typeof value.hidden !== "boolean" || !originalProps) {
+      return null;
+    }
+    return { hidden: value.hidden, originalProps };
+  }
+  function readLineSlideRecord(value) {
+    if (!isRecord(value) || !isNonEmptyString(value.id)) {
+      return null;
+    }
+    if (value.notes !== void 0 && typeof value.notes !== "string") {
+      return null;
+    }
+    if (value.excluded !== void 0 && typeof value.excluded !== "boolean") {
+      return null;
+    }
+    const result = { id: value.id };
+    const notes = normalizeNotes(value.notes);
+    if (notes !== void 0) result.notes = notes;
+    if (value.excluded !== void 0) result.excluded = value.excluded;
+    return result;
+  }
+  function readLineSlideshowDataV2(customData) {
+    const value = getRawSlideshowMetadata(customData);
+    if (!isRecord(value) || value.schemaVersion !== LINE_SCHEMA_VERSION || value.kind !== "path") {
+      return null;
+    }
+    const originalProps = readOriginalPathProperties(value.originalProps);
+    if (typeof value.hidden !== "boolean" || !originalProps || !Array.isArray(value.slides) || value.name !== void 0 && typeof value.name !== "string") {
+      return null;
+    }
+    const slides = value.slides.map(readLineSlideRecord);
+    if (slides.some((slide) => slide === null)) {
+      return null;
+    }
+    const result = {
+      schemaVersion: LINE_SCHEMA_VERSION,
+      kind: "path",
+      hidden: value.hidden,
+      originalProps,
+      slides
+    };
+    const name = normalizeNotes(value.name);
+    if (name !== void 0) result.name = name;
+    return result;
+  }
+  function makeGeneratedLineSlideId(pathId, index, usedIds) {
+    const base = `slideshow-${pathId}-${index + 1}`;
+    let candidate = base;
+    let suffix = 2;
+    while (usedIds.has(candidate)) {
+      candidate = `${base}-${suffix}`;
+      suffix += 1;
+    }
+    return candidate;
+  }
+  function reconcileLineSlideRecords(records, pairCount, pathId) {
+    const count = Math.max(0, Math.floor(pairCount));
+    const result = [];
+    const usedIds = /* @__PURE__ */ new Set();
+    for (let index = 0; index < count; index += 1) {
+      const existing = records[index];
+      const id = existing && isNonEmptyString(existing.id) && !usedIds.has(existing.id) ? existing.id : makeGeneratedLineSlideId(pathId, index, usedIds);
+      usedIds.add(id);
+      const record = { id };
+      const notes = normalizeNotes(existing?.notes);
+      if (notes !== void 0) record.notes = notes;
+      if (existing?.excluded === true) record.excluded = true;
+      result.push(record);
+    }
+    return result;
+  }
+  function reorderLineSlideRecords(records, pairCount, pathId, fromPairIndex, toPairIndex) {
+    const reconciled = reconcileLineSlideRecords(records, pairCount, pathId);
+    if (!Number.isInteger(fromPairIndex) || !Number.isInteger(toPairIndex) || fromPairIndex < 0 || toPairIndex < 0 || fromPairIndex >= reconciled.length || toPairIndex >= reconciled.length) {
+      throw new RangeError("Line-slide metadata index is outside the presentation path.");
+    }
+    const [record] = reconciled.splice(fromPairIndex, 1);
+    if (!record) {
+      throw new RangeError("The source line-slide metadata record does not exist.");
+    }
+    reconciled.splice(toPairIndex, 0, record);
+    return reconciled;
+  }
+  function readLineSlideshowData(customData, pathId, pairCount) {
+    const v2 = readLineSlideshowDataV2(customData);
+    if (v2) {
+      return {
+        source: "v2",
+        data: { ...v2, slides: reconcileLineSlideRecords(v2.slides, pairCount, pathId) }
+      };
+    }
+    const legacy = readLegacyLineSlideshowData(customData);
+    if (!legacy) {
+      return null;
+    }
+    return {
+      source: "legacy",
+      data: {
+        schemaVersion: LINE_SCHEMA_VERSION,
+        kind: "path",
+        hidden: legacy.hidden,
+        originalProps: legacy.originalProps,
+        slides: reconcileLineSlideRecords([], pairCount, pathId)
+      }
+    };
+  }
+  function upgradeLineSlideshowData(customData, pathId, pairCount, fallbackOriginalProps) {
+    const existing = readLineSlideshowData(customData, pathId, pairCount);
+    if (existing) {
+      return existing.data;
+    }
+    return {
+      schemaVersion: LINE_SCHEMA_VERSION,
+      kind: "path",
+      hidden: false,
+      originalProps: fallbackOriginalProps,
+      slides: reconcileLineSlideRecords([], pairCount, pathId)
+    };
+  }
+  function withNormalizedFrameOrder(customData, order) {
+    const existing = readFrameSlideshowData(customData);
+    const result = {
+      schemaVersion: FRAME_SCHEMA_VERSION,
+      kind: "frame",
+      order
+    };
+    if (existing?.excluded !== void 0) result.excluded = existing.excluded;
+    if (existing?.notes !== void 0) result.notes = existing.notes;
+    if (existing?.animation !== void 0) result.animation = existing.animation;
+    return result;
+  }
+  function writeSlideshowMetadata(ea2, elementId, data) {
+    return ea2.addAppendUpdateCustomData(elementId, { slideshow: data });
+  }
+
+  // src/scripts/slideshow/SlideDeck.ts
+  function getVisibleSlideIndex(deck, slideId) {
+    if (!slideId) return null;
+    const index = deck.visibleSlides.findIndex((slide) => slide.id === slideId);
+    return index >= 0 ? index : null;
+  }
+  function compareAlphabetically(left, right) {
+    if (left.title === right.title) {
+      return left.sourceIndex - right.sourceIndex;
+    }
+    return left.title > right.title ? 1 : -1;
+  }
+  function orderFrames(frames) {
+    const explicit = frames.some((frame) => frame.metadata !== null);
+    if (!explicit) {
+      return { ordered: [...frames].sort(compareAlphabetically), explicit: false };
+    }
+    const withOrder = frames.filter((frame) => frame.metadata !== null);
+    const withoutOrder = frames.filter((frame) => frame.metadata === null).sort(compareAlphabetically);
+    withOrder.sort((left, right) => {
+      const orderDelta = (left.metadata?.order ?? 0) - (right.metadata?.order ?? 0);
+      return orderDelta !== 0 ? orderDelta : left.sourceIndex - right.sourceIndex;
+    });
+    return { ordered: withOrder.concat(withoutOrder), explicit: true };
+  }
+  function toIndexedFrames(frames) {
+    return frames.map((source, sourceIndex) => ({
+      source,
+      sourceIndex,
+      title: getPresentationFrameName(source.name, sourceIndex),
+      metadata: readFrameSlideshowData(source.customData)
+    }));
+  }
+  function buildFrameSlideDeck(frames) {
+    const { ordered, explicit } = orderFrames(toIndexedFrames(frames));
+    const slides = ordered.map((frame, index) => {
+      const { source, metadata } = frame;
+      const slide = {
+        id: source.id,
+        kind: "frame",
+        frameId: source.id,
+        title: frame.title,
+        rect: { x1: source.x, y1: source.y, x2: source.x + source.width, y2: source.y + source.height },
+        excluded: metadata?.excluded ?? false,
+        order: index,
+        animationSteps: metadata?.animation?.steps ?? []
+      };
+      if (metadata?.notes !== void 0) slide.notes = metadata.notes;
+      return slide;
+    });
+    return {
+      kind: "frame",
+      slides,
+      visibleSlides: slides.filter((slide) => !slide.excluded),
+      hasExplicitFrameOrder: explicit
+    };
+  }
+  function buildLineSlideDeck(path) {
+    const pairCount = Math.floor(path.points.length / 2);
+    const metadata = readLineSlideshowData(path.customData, path.id, pairCount);
+    const records = metadata?.data.slides ?? [];
+    const slides = [];
+    for (let pairIndex = 0; pairIndex < pairCount; pairIndex += 1) {
+      const pointA = path.points[pairIndex * 2];
+      const pointB = path.points[pairIndex * 2 + 1];
+      if (!pointA || !pointB) continue;
+      const record = records[pairIndex];
+      const slide = {
+        id: record?.id ?? `slideshow-${path.id}-${pairIndex + 1}`,
+        kind: "path",
+        pathId: path.id,
+        pairIndex,
+        title: `Slide ${pairIndex + 1}`,
+        rect: {
+          x1: path.x + pointA[0],
+          y1: path.y + pointA[1],
+          x2: path.x + pointB[0],
+          y2: path.y + pointB[1]
+        },
+        excluded: record?.excluded ?? false
+      };
+      if (record?.notes !== void 0) slide.notes = record.notes;
+      slides.push(slide);
+    }
+    return {
+      kind: "path",
+      slides,
+      visibleSlides: slides.filter((slide) => !slide.excluded),
+      hasExplicitFrameOrder: false
+    };
+  }
+  function movePair(pairs, fromPairIndex, toPairIndex) {
+    const [pair] = pairs.splice(fromPairIndex, 1);
+    if (!pair) throw new RangeError("The source line-slide pair does not exist.");
+    pairs.splice(toPairIndex, 0, pair);
+  }
+  function reorderLinePointPairs(x, y, points, fromPairIndex, toPairIndex) {
+    const pairCount = Math.floor(points.length / 2);
+    if (!Number.isInteger(fromPairIndex) || !Number.isInteger(toPairIndex) || fromPairIndex < 0 || toPairIndex < 0 || fromPairIndex >= pairCount || toPairIndex >= pairCount) {
+      throw new RangeError("Line-slide pair index is outside the presentation path.");
+    }
+    const absolute = points.map((point) => [x + point[0], y + point[1]]);
+    const pairs = [];
+    for (let index = 0; index < pairCount; index += 1) {
+      const pointA = absolute[index * 2];
+      const pointB = absolute[index * 2 + 1];
+      if (pointA && pointB) pairs.push([pointA, pointB]);
+    }
+    movePair(pairs, fromPairIndex, toPairIndex);
+    const reorderedAbsolute = pairs.flat();
+    const trailingPoint = absolute[pairCount * 2];
+    if (trailingPoint) reorderedAbsolute.push(trailingPoint);
+    const origin = reorderedAbsolute[0];
+    if (!origin) return { x, y, points: [] };
+    return {
+      x: origin[0],
+      y: origin[1],
+      points: reorderedAbsolute.map((point) => [point[0] - origin[0], point[1] - origin[1]])
+    };
+  }
+
+  // src/scripts/slideshow/types.ts
+  function isLinearPathElement(element) {
+    return element?.type === "line" || element?.type === "arrow";
+  }
+  function isFrameElement(element) {
+    return element?.type === "frame";
+  }
+
+  // src/scripts/slideshow/presentationPath.ts
+  function getNamedFrames(elements) {
+    return elements.filter(isFrameElement).map((frame, index) => ({
+      ...frame,
+      name: getPresentationFrameName(frame.name, index)
+    }));
+  }
+  function resolveFrameDeck(frames) {
+    if (frames.length === 0) return null;
+    return { deck: buildFrameSlideDeck(frames), pathElement: null, frames };
+  }
+  function toLinePresentationSource(pathElement, frames) {
+    const metadata = readLineSlideshowData(
+      pathElement.customData,
+      pathElement.id,
+      Math.floor(pathElement.points.length / 2)
+    );
+    if (!metadata) return null;
+    return {
+      key: `line:${pathElement.id}`,
+      pathId: pathElement.id,
+      name: metadata.data.name?.trim() || null,
+      resolved: {
+        deck: buildLineSlideDeck(pathElement),
+        pathElement,
+        frames
+      }
+    };
+  }
+  function resolveLineSources(elements, frames) {
+    const result = [];
+    for (const element of elements) {
+      if (!isLinearPathElement(element)) continue;
+      const source = toLinePresentationSource(element, frames);
+      if (source) result.push(source);
+    }
+    return result;
+  }
+  function isPresentationPathHidden(path) {
+    return readLineSlideshowData(path.customData, path.id, Math.floor(path.points.length / 2))?.data.hidden ?? false;
+  }
+  function hasPresentationSource(choices, sourceKey) {
+    if (!sourceKey) return false;
+    if (sourceKey === "frame") return choices.frame !== null;
+    return choices.lines.some((line) => line.key === sourceKey);
+  }
+  function resolvePresentationSource(choices, sourceKey) {
+    if (!sourceKey) return null;
+    if (sourceKey === "frame") return choices.frame;
+    return choices.lines.find((line) => line.key === sourceKey)?.resolved ?? null;
+  }
+  function getPresentationSourceType(sourceKey) {
+    return sourceKey === "frame" ? "frame" : "line";
+  }
+  function getLinePresentationSourceKey(element) {
+    if (!isLinearPathElement(element)) return null;
+    const metadata = readLineSlideshowData(
+      element.customData,
+      element.id,
+      Math.floor(element.points.length / 2)
+    );
+    return metadata ? `line:${element.id}` : null;
+  }
+  function resolveSlideDeckChoices(ea2) {
+    const viewElements = ea2.getViewElements();
+    const frames = getNamedFrames(viewElements);
+    const frame = resolveFrameDeck(frames);
+    const lines = resolveLineSources(viewElements, frames);
+    const selectedSourceKey = getLinePresentationSourceKey(ea2.getViewSelectedElement());
+    const defaultSourceKey = selectedSourceKey ? selectedSourceKey : frame ? "frame" : lines[0]?.key ?? null;
+    const defaultType = defaultSourceKey ? getPresentationSourceType(defaultSourceKey) : null;
+    return { frame, lines, line: lines[0]?.resolved ?? null, defaultSourceKey, defaultType };
+  }
+  function normalizeSourceKey(choices, requested) {
+    if (requested === "frame") return choices.frame ? "frame" : null;
+    if (requested === "line") return choices.lines[0]?.key ?? null;
+    if (requested?.startsWith("line:")) {
+      return hasPresentationSource(choices, requested) ? requested : null;
+    }
+    return choices.defaultSourceKey;
+  }
+  function resolvePresentationSetup(ea2, api, t, presentationSource) {
+    const choices = resolveSlideDeckChoices(ea2);
+    const sourceKey = normalizeSourceKey(choices, presentationSource);
+    const resolved = resolvePresentationSource(choices, sourceKey);
+    const frameRenderingOriginalState = api.getAppState().frameRendering;
+    if (!resolved || !sourceKey) {
+      api.setToast({
+        message: t?.("noPresentationPath") ?? "Select a configured presentation in the Slideshow panel or add frames.",
+        duration: 3e3,
+        closable: true
+      });
+      return null;
+    }
+    if (resolved.deck.visibleSlides.length === 0) {
+      api.setToast({
+        message: t?.("allSlidesExcluded") ?? "All slides are excluded. Include at least one slide before presenting.",
+        duration: 4e3,
+        closable: true
+      });
+      return null;
+    }
+    if (!resolved.pathElement) {
+      if (frameRenderingOriginalState.enabled) {
+        api.updateScene({
+          appState: {
+            frameRendering: { ...frameRenderingOriginalState, enabled: false }
+          }
+        });
+      }
+      return {
+        ...resolved,
+        sourceKey,
+        pathType: "frame",
+        slides: resolved.deck.visibleSlides.map((slide) => slide.rect),
+        slideTitles: resolved.deck.visibleSlides.map((slide) => slide.title),
+        shouldHidePathAfterPresentation: true,
+        isHidden: false,
+        originalPathProperties: null,
+        frameRenderingOriginalState
+      };
+    }
+    const pathElement = resolved.pathElement;
+    const metadata = readLineSlideshowData(
+      pathElement.customData,
+      pathElement.id,
+      Math.floor(pathElement.points.length / 2)
+    );
+    if (!metadata) return null;
+    const originalPathProperties = metadata.data.hidden ? metadata.data.originalProps : {
+      strokeColor: pathElement.strokeColor,
+      backgroundColor: pathElement.backgroundColor,
+      locked: pathElement.locked
+    };
+    return {
+      ...resolved,
+      sourceKey,
+      pathType: "line",
+      slides: resolved.deck.visibleSlides.map((slide) => slide.rect),
+      slideTitles: resolved.deck.visibleSlides.map((slide) => slide.title),
+      shouldHidePathAfterPresentation: true,
+      isHidden: metadata.data.hidden,
+      originalPathProperties,
+      frameRenderingOriginalState
+    };
+  }
+
+  // src/sharedUtils/windowTiming.ts
+  function sleepInWindow(ownerWindow, milliseconds) {
+    return new Promise((resolve) => ownerWindow.setTimeout(resolve, milliseconds));
+  }
+
+  // src/scripts/slideshow/AnimationRuntime.ts
+  function asAnimationShape(element) {
+    return element;
+  }
+  function getAnimationOverlayPlacement(bounds, state, hostViewportOrigin) {
+    const zoom = state.zoom.value;
+    return {
+      left: state.offsetLeft + (bounds.topX + state.scrollX) * zoom - hostViewportOrigin.left,
+      top: state.offsetTop + (bounds.topY + state.scrollY) * zoom - hostViewportOrigin.top,
+      width: Math.max(bounds.width * zoom, 1),
+      height: Math.max(bounds.height * zoom, 1)
+    };
+  }
+  function getElementRect(element) {
+    const x1 = element.x;
+    const y1 = element.y;
+    const x2 = element.x + element.width;
+    const y2 = element.y + element.height;
+    const left = Math.min(x1, x2);
+    const right = Math.max(x1, x2);
+    const top = Math.min(y1, y2);
+    const bottom = Math.max(y1, y2);
+    const angle = element.angle ?? 0;
+    if (angle === 0) return { left, top, right, bottom };
+    const centerX = (left + right) / 2;
+    const centerY = (top + bottom) / 2;
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    const corners = [
+      [left, top],
+      [right, top],
+      [right, bottom],
+      [left, bottom]
+    ];
+    const rotated = corners.map(([x, y]) => {
+      const dx = x - centerX;
+      const dy = y - centerY;
+      return [centerX + dx * cos - dy * sin, centerY + dx * sin + dy * cos];
+    });
+    return {
+      left: Math.min(...rotated.map(([x]) => x)),
+      top: Math.min(...rotated.map(([, y]) => y)),
+      right: Math.max(...rotated.map(([x]) => x)),
+      bottom: Math.max(...rotated.map(([, y]) => y))
+    };
+  }
+  function rectsOverlap2(left, right) {
+    return left.left <= right.right && left.right >= right.left && left.top <= right.bottom && left.bottom >= right.top;
+  }
+  function elementOverlapsFrame(element, frame) {
+    return element.id !== frame.id && rectsOverlap2(getElementRect(element), getElementRect(frame));
+  }
+  function getElementById(elements, id) {
+    return elements.find((element) => element.id === id);
+  }
+  function canonicalElementTargetId(element, elements) {
+    const shape = asAnimationShape(element);
+    if (element.type === "text" && shape.containerId) {
+      const container = getElementById(elements, shape.containerId);
+      if (container) return container.id;
+    }
+    return element.id;
+  }
+  function expandBoundVisualUnit(initialIds, elements) {
+    const result = /* @__PURE__ */ new Set();
+    const queue = [...initialIds];
+    while (queue.length > 0) {
+      const id = queue.shift();
+      if (!id || result.has(id)) continue;
+      const element = getElementById(elements, id);
+      if (!element) continue;
+      result.add(id);
+      const shape = asAnimationShape(element);
+      if (element.type === "text" && shape.containerId) queue.push(shape.containerId);
+      for (const bound of shape.boundElements ?? []) {
+        const boundElement = getElementById(elements, bound.id);
+        if (boundElement?.type === "text") queue.push(bound.id);
+      }
+    }
+    return [...result];
+  }
+  function visualUnitOverlapsFrame(element, frame, elements) {
+    return expandBoundVisualUnit([element.id], elements).some((id) => {
+      const candidate = getElementById(elements, id);
+      return candidate ? elementOverlapsFrame(candidate, frame) : false;
+    });
+  }
+  function resolveAnimationTargetElementIds(frameId, targets, elements) {
+    const frame = getElementById(elements, frameId);
+    if (!frame) return [];
+    const baseIds = /* @__PURE__ */ new Set();
+    for (const target of targets) {
+      if (target.type === "element") {
+        const element = getElementById(elements, target.id);
+        if (element && visualUnitOverlapsFrame(element, frame, elements)) {
+          baseIds.add(canonicalElementTargetId(element, elements));
+        }
+        continue;
+      }
+      for (const element of elements) {
+        const shape = asAnimationShape(element);
+        if (shape.groupIds?.includes(target.id) && elementOverlapsFrame(element, frame)) {
+          baseIds.add(element.id);
+        }
+      }
+    }
+    return expandBoundVisualUnit(baseIds, elements);
+  }
+  function animationTargetExists(target, elements) {
+    if (target.type === "element") {
+      return elements.some((element) => element.id === target.id);
+    }
+    return elements.some((element) => asAnimationShape(element).groupIds?.includes(target.id));
+  }
+  function recycleMissingAnimationTargets(steps, elements) {
+    return steps.flatMap((step) => {
+      const targets = step.targets.filter((target) => animationTargetExists(target, elements)).map((target) => structuredClone(target));
+      return targets.length === 0 ? [] : [{ ...structuredClone(step), targets }];
+    });
+  }
+  function captureAnimationTargets(frameId, elements, selectedElementIds, selectedGroupIds) {
+    const frame = getElementById(elements, frameId);
+    if (!frame) return { targets: [], ignoredSelectionCount: Object.keys(selectedElementIds).length };
+    const targets = [];
+    const seen = /* @__PURE__ */ new Set();
+    let ignoredSelectionCount = 0;
+    const selectedGroups = Object.entries(selectedGroupIds).filter(([, selected]) => selected).map(([groupId]) => groupId);
+    for (const groupId of selectedGroups) {
+      const members = elements.filter((element) => asAnimationShape(element).groupIds?.includes(groupId));
+      const inFrame = members.filter((element) => elementOverlapsFrame(element, frame));
+      const selectedOutside = members.some(
+        (element) => selectedElementIds[element.id] && !elementOverlapsFrame(element, frame)
+      );
+      if (inFrame.length > 0) {
+        const key = `group:${groupId}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          targets.push({ type: "group", id: groupId });
+        }
+      }
+      if (selectedOutside) ignoredSelectionCount += 1;
+    }
+    for (const element of elements) {
+      if (!selectedElementIds[element.id] || element.id === frameId) continue;
+      const shape = asAnimationShape(element);
+      if (selectedGroups.some((groupId) => shape.groupIds?.includes(groupId))) continue;
+      if (!visualUnitOverlapsFrame(element, frame, elements)) {
+        ignoredSelectionCount += 1;
+        continue;
+      }
+      const id = canonicalElementTargetId(element, elements);
+      const key = `element:${id}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        targets.push({ type: "element", id });
+      }
+    }
+    return { targets, ignoredSelectionCount };
+  }
+  function targetsOverlap(frameId, left, right, elements) {
+    const leftIds = new Set(resolveAnimationTargetElementIds(frameId, [left], elements));
+    return resolveAnimationTargetElementIds(frameId, [right], elements).some((id) => leftIds.has(id));
+  }
+  function removeAnimationTargetConflicts(frameId, steps, incomingTargets, elements, editedStepId) {
+    return steps.flatMap((step) => {
+      if (step.id === editedStepId) return [structuredClone(step)];
+      const targets = step.targets.filter(
+        (target) => !incomingTargets.some((incoming) => targetsOverlap(frameId, target, incoming, elements))
+      );
+      return targets.length === 0 ? [] : [{ ...structuredClone(step), targets }];
+    });
+  }
+  function getOpacity(element) {
+    return asAnimationShape(element).opacity;
+  }
+  function resolveRuntimeSteps(frameId, steps, elements) {
+    const resolved = steps.map((step) => ({
+      step: structuredClone(step),
+      elementIds: resolveAnimationTargetElementIds(frameId, step.targets, elements)
+    }));
+    const claimedByLaterStep = /* @__PURE__ */ new Set();
+    for (let index = resolved.length - 1; index >= 0; index -= 1) {
+      const current = resolved[index];
+      if (!current) continue;
+      current.elementIds = current.elementIds.filter((id) => !claimedByLaterStep.has(id));
+      for (const id of current.elementIds) claimedByLaterStep.add(id);
+    }
+    return resolved.filter((step) => step.elementIds.length > 0);
+  }
+  var AnimationRuntime = class {
+    ea;
+    api;
+    hostView;
+    ownerWindow;
+    onStateChange;
+    active = null;
+    timer = 0;
+    generation = 0;
+    overlays = /* @__PURE__ */ new Set();
+    buildQueue = Promise.resolve();
+    constructor(options) {
+      this.ea = options.ea;
+      this.api = options.api;
+      this.hostView = options.hostView;
+      this.ownerWindow = options.hostView.ownerWindow;
+      this.onStateChange = options.onStateChange;
+    }
+    /** Returns current build progress for presentation-state consumers. */
+    getState() {
+      return {
+        completedSteps: this.active?.completedSteps ?? 0,
+        stepCount: this.active?.steps.length ?? 0
+      };
+    }
+    /** Returns original opacity for active animated elements, for presenter build previews. */
+    getOriginalOpacities() {
+      const opacities = /* @__PURE__ */ new Map();
+      for (const [id, element] of this.active?.originals ?? []) opacities.set(id, element.opacity);
+      return opacities;
+    }
+    /** Restores the prior slide, resolves the destination's dynamic targets, and applies its build state. */
+    async enterSlide(slide, fullyBuilt, startTimedSteps = true) {
+      await this.leaveSlide();
+      const elements = this.api.getSceneElements();
+      const steps = resolveRuntimeSteps(slide.frameId, slide.animationSteps, elements);
+      const allIds = new Set(steps.flatMap((step) => step.elementIds));
+      const originals = /* @__PURE__ */ new Map();
+      for (const element of elements) {
+        if (allIds.has(element.id)) originals.set(element.id, element);
+      }
+      this.active = {
+        frameId: slide.frameId,
+        steps,
+        originals,
+        completedSteps: fullyBuilt ? steps.length : 0
+      };
+      const generation = this.generation;
+      try {
+        if (!fullyBuilt) this.applyBuildState();
+        this.emitState();
+        if (startTimedSteps) this.schedulePendingTimedStep();
+      } catch (error) {
+        if (generation === this.generation) await this.leaveSlide();
+        throw error;
+      }
+    }
+    /** Starts the pending timed step after viewport navigation has completed. */
+    startPendingTimer() {
+      this.schedulePendingTimedStep();
+    }
+    /** Pauses only the pending after-delay timer without changing build state. */
+    pauseTimedStep() {
+      this.cancelTimer();
+    }
+    /** Reveals the next build step, returning false only when the slide is fully built. */
+    advance() {
+      const requestedGeneration = this.generation;
+      return this.enqueueBuildAction(
+        requestedGeneration,
+        () => this.advanceCurrentStep(requestedGeneration)
+      );
+    }
+    /** Reverses the most recently completed build step, returning false at the slide's initial state. */
+    reverse() {
+      const requestedGeneration = this.generation;
+      return this.enqueueBuildAction(
+        requestedGeneration,
+        () => this.reverseCurrentStep(requestedGeneration)
+      );
+    }
+    enqueueBuildAction(requestedGeneration, task) {
+      const result = this.buildQueue.then(() => {
+        if (requestedGeneration !== this.generation) return true;
+        return task();
+      });
+      this.buildQueue = result.then(
+        () => void 0,
+        () => void 0
+      );
+      return result;
+    }
+    async advanceCurrentStep(generation) {
+      const active = this.active;
+      if (!active || active.completedSteps >= active.steps.length) return false;
+      this.cancelTimer();
+      const resolved = active.steps[active.completedSteps];
+      if (!resolved) return false;
+      try {
+        await this.runStepEffect(resolved, false, generation);
+        if (!this.active || generation !== this.generation) return true;
+        this.active.completedSteps += 1;
+        this.emitState();
+        this.schedulePendingTimedStep();
+        return true;
+      } catch (error) {
+        if (generation === this.generation) await this.leaveSlide();
+        throw error;
+      }
+    }
+    async reverseCurrentStep(generation) {
+      const active = this.active;
+      if (!active || active.completedSteps <= 0) return false;
+      this.cancelTimer();
+      const resolved = active.steps[active.completedSteps - 1];
+      if (!resolved) return false;
+      try {
+        await this.runStepEffect(resolved, true, generation);
+        if (!this.active || generation !== this.generation) return true;
+        this.active.completedSteps -= 1;
+        this.emitState();
+        return true;
+      } catch (error) {
+        if (generation === this.generation) await this.leaveSlide();
+        throw error;
+      }
+    }
+    /** Restores every animation target to its final/original visibility and invalidates callbacks. */
+    async finishActiveSlide() {
+      this.invalidateAsyncWork();
+      if (this.active) this.restoreOriginalOpacities();
+      this.active = null;
+      this.emitState();
+    }
+    /** Leaves a slide with every animation target restored to its final/original visibility. */
+    async leaveSlide() {
+      await this.finishActiveSlide();
+    }
+    /** Runs one animation from the sidepanel and restores the drawing when the preview completes. */
+    async previewStep(frameId, step) {
+      await this.leaveSlide();
+      const elements = this.api.getSceneElements();
+      const elementIds = resolveAnimationTargetElementIds(frameId, step.targets, elements);
+      const originals = /* @__PURE__ */ new Map();
+      for (const element of elements) {
+        if (elementIds.includes(element.id)) originals.set(element.id, element);
+      }
+      this.active = {
+        frameId,
+        steps: elementIds.length > 0 ? [{ step: structuredClone(step), elementIds }] : [],
+        originals,
+        completedSteps: 0
+      };
+      const generation = this.generation;
+      try {
+        this.applyBuildState();
+        await this.wait(250, generation);
+        if (this.active.steps[0] && generation === this.generation) {
+          await this.runStepEffect(this.active.steps[0], false, generation);
+        }
+        await this.wait(Math.max(step.durationMs ?? 350, 150) + 120, generation);
+      } finally {
+        if (generation === this.generation && this.active) await this.leaveSlide();
+      }
+    }
+    /** Temporarily exposes the fully built current slide for PDF export, then restores build state. */
+    async withFinalState(task) {
+      const active = this.active;
+      if (!active) return task();
+      const completedSteps = active.completedSteps;
+      this.invalidateAsyncWork();
+      this.restoreOriginalOpacities();
+      try {
+        return await task();
+      } finally {
+        if (this.active === active) {
+          active.completedSteps = completedSteps;
+          this.applyBuildState();
+          this.emitState();
+          this.schedulePendingTimedStep();
+        }
+      }
+    }
+    emitState() {
+      this.onStateChange?.(this.getState());
+    }
+    schedulePendingTimedStep() {
+      this.cancelTimer();
+      const active = this.active;
+      const pending = active?.steps[active.completedSteps];
+      if (!active || !pending || pending.step.trigger !== "after-delay") return;
+      const generation = this.generation;
+      this.timer = this.ownerWindow.setTimeout(() => {
+        this.timer = 0;
+        if (generation !== this.generation) return;
+        void this.advance().catch((error) => {
+          console.error("Slideshow timed animation failed", error);
+        });
+      }, pending.step.delayMs ?? 1e3);
+    }
+    applyBuildState() {
+      const active = this.active;
+      if (!active) return;
+      const visibleIds = new Set(
+        active.steps.slice(0, active.completedSteps).flatMap((resolved) => resolved.elementIds)
+      );
+      const opacities = /* @__PURE__ */ new Map();
+      for (const [id, original] of active.originals) {
+        opacities.set(id, visibleIds.has(id) ? getOpacity(original) : 0);
+      }
+      this.applyOpacities(opacities);
+    }
+    restoreOriginalOpacities() {
+      const active = this.active;
+      if (!active || active.originals.size === 0) return;
+      const opacities = /* @__PURE__ */ new Map();
+      for (const [id, original] of active.originals) opacities.set(id, getOpacity(original));
+      this.applyOpacities(opacities);
+    }
+    applyOpacities(opacities) {
+      if (opacities.size === 0) return;
+      const current = this.api.getSceneElements();
+      const elements = current.map((element) => {
+        const opacity = opacities.get(element.id);
+        return opacity === void 0 ? element : { ...element, opacity };
+      });
+      this.api.updateScene({ elements, captureUpdate: "NEVER" });
+    }
+    async runStepEffect(resolved, reverse, generation) {
+      const { step, elementIds } = resolved;
+      if (step.effect === "appear") {
+        this.applyResolvedOpacity(resolved, reverse ? 0 : null);
+        return;
+      }
+      if (step.effect === "fade") {
+        await this.animateFade(resolved, reverse, generation);
+        return;
+      }
+      await this.animateOverlay(resolved, reverse, generation);
+    }
+    applyResolvedOpacity(resolved, opacity) {
+      const active = this.active;
+      if (!active) return;
+      const opacities = /* @__PURE__ */ new Map();
+      for (const id of resolved.elementIds) {
+        const original = active.originals.get(id);
+        if (original) opacities.set(id, opacity ?? getOpacity(original));
+      }
+      this.applyOpacities(opacities);
+    }
+    async animateFade(resolved, reverse, generation) {
+      const active = this.active;
+      if (!active) return;
+      const duration = resolved.step.durationMs ?? 350;
+      const started = this.ownerWindow.performance.now();
+      while (generation === this.generation) {
+        const elapsed = this.ownerWindow.performance.now() - started;
+        const progress = duration <= 0 ? 1 : Math.min(elapsed / duration, 1);
+        const opacities = /* @__PURE__ */ new Map();
+        for (const id of resolved.elementIds) {
+          const original = active.originals.get(id);
+          if (!original) continue;
+          const originalOpacity = getOpacity(original);
+          opacities.set(id, reverse ? originalOpacity * (1 - progress) : originalOpacity * progress);
+        }
+        this.applyOpacities(opacities);
+        if (progress >= 1) break;
+        await this.nextFrame(generation);
+      }
+    }
+    async animateOverlay(resolved, reverse, generation) {
+      const overlay = await this.createOverlay(resolved.elementIds);
+      if (!overlay || generation !== this.generation) {
+        overlay?.remove();
+        return;
+      }
+      this.overlays.add(overlay);
+      const duration = resolved.step.durationMs ?? 350;
+      const motion = this.getOverlayMotion(resolved.step, overlay);
+      overlay.style.transition = "none";
+      overlay.style.opacity = "1";
+      overlay.style.transform = reverse ? motion.end : motion.start;
+      if (reverse) this.applyResolvedOpacity(resolved, 0);
+      await this.nextFrame(generation);
+      await this.nextFrame(generation);
+      if (generation !== this.generation) return;
+      overlay.style.transition = `transform ${duration}ms ease, opacity ${duration}ms ease`;
+      overlay.style.transform = reverse ? motion.start : motion.end;
+      if (reverse && resolved.step.effect === "zoom") overlay.style.opacity = "0";
+      await this.wait(duration + 24, generation);
+      if (!reverse && generation === this.generation) this.applyResolvedOpacity(resolved, null);
+      overlay.remove();
+      this.overlays.delete(overlay);
+    }
+    getOverlayMotion(step, overlay) {
+      if (step.effect === "zoom") return { start: "scale(0.05)", end: "scale(1)" };
+      const rect = overlay.getBoundingClientRect();
+      const appState = this.api.getAppState();
+      const horizontal = Math.max(rect.width, appState.width * 0.2, 80);
+      const vertical = Math.max(rect.height, appState.height * 0.2, 80);
+      const start = step.direction === "right" ? `translateX(${horizontal}px)` : step.direction === "up" ? `translateY(-${vertical}px)` : step.direction === "down" ? `translateY(${vertical}px)` : `translateX(-${horizontal}px)`;
+      return { start, end: "translate(0, 0)" };
+    }
+    async createOverlay(elementIds) {
+      const active = this.active;
+      if (!active) return null;
+      const originals = elementIds.map((id) => active.originals.get(id)).filter((element) => Boolean(element));
+      if (originals.length === 0) return null;
+      this.ea.setView(this.hostView);
+      const svg = await this.ea.createViewSVG({
+        withBackground: false,
+        theme: this.api.getAppState().theme,
+        frameRendering: { enabled: false, name: false, outline: false, clip: false },
+        padding: 0,
+        selectedOnly: false,
+        skipInliningFonts: false,
+        embedScene: false,
+        elementsOverride: originals
+      });
+      const excalidraw = this.hostView.contentEl.querySelector(".excalidraw");
+      if (!excalidraw) return null;
+      const bounds = this.ea.getBoundingBox(originals);
+      const state = this.api.getAppState();
+      const hostRect = excalidraw.getBoundingClientRect();
+      const placement = getAnimationOverlayPlacement(bounds, state, {
+        left: hostRect.left + excalidraw.clientLeft,
+        top: hostRect.top + excalidraw.clientTop
+      });
+      const overlay = this.hostView.ownerDocument.createElement("div");
+      overlay.className = "slideshow-animation-overlay";
+      overlay.style.position = "absolute";
+      overlay.style.pointerEvents = "none";
+      overlay.style.zIndex = "4";
+      overlay.style.left = `${placement.left}px`;
+      overlay.style.top = `${placement.top}px`;
+      overlay.style.width = `${placement.width}px`;
+      overlay.style.height = `${placement.height}px`;
+      overlay.style.transformOrigin = "center center";
+      overlay.innerHTML = svg.outerHTML;
+      const child = overlay.firstElementChild;
+      if (child) {
+        child.setAttribute("width", "100%");
+        child.setAttribute("height", "100%");
+        child.style.display = "block";
+        child.style.overflow = "visible";
+      }
+      excalidraw.appendChild(overlay);
+      return overlay;
+    }
+    cancelTimer() {
+      if (this.timer) this.ownerWindow.clearTimeout(this.timer);
+      this.timer = 0;
+    }
+    invalidateAsyncWork() {
+      this.generation += 1;
+      this.cancelTimer();
+      for (const overlay of this.overlays) overlay.remove();
+      this.overlays.clear();
+    }
+    nextFrame(generation) {
+      if (generation !== this.generation) return Promise.resolve();
+      return new Promise((resolve) => {
+        this.ownerWindow.requestAnimationFrame(() => resolve());
+      });
+    }
+    wait(delay, generation) {
+      if (generation !== this.generation) return Promise.resolve();
+      return new Promise((resolve) => {
+        this.ownerWindow.setTimeout(resolve, delay);
+      });
+    }
+  };
+
+  // src/scripts/slideshow/PresentationControls.ts
+  var PresentationControls = class {
+    constructor(options) {
+      this.options = options;
+    }
+    panel = null;
+    select = null;
+    fullscreenButton = null;
+    fadeTimeout = 0;
+    posX1 = 0;
+    posY1 = 0;
+    posX2 = 0;
+    posY2 = 0;
+    /** Creates and attaches the complete slideshow toolbar. */
+    create() {
+      const {
+        contentElement,
+        slidesCount,
+        pathType,
+        slideTitles,
+        shouldOfferPathVisibility,
+        isPathHidden,
+        printSlideWidth,
+        printSlideHeight,
+        ea: ea2,
+        callbacks,
+        icons,
+        t,
+        ownerDocument
+      } = this.options;
+      const excalidrawContainer = contentElement.querySelector(".excalidraw");
+      if (!excalidrawContainer) {
+        throw new Error("Could not find the Excalidraw container for slideshow controls.");
+      }
+      const top = contentElement.innerHeight;
+      this.panel = excalidrawContainer.createDiv({
+        cls: [
+          "excalidraw-presentation-panel",
+          ...ea2.DEVICE.isMobile ? ["slideshow-presentation-panel--mobile"] : []
+        ],
+        attr: {
+          style: `
+          width: fit-content;
+          max-width: calc(100% - 12px);
+          z-index:5;
+          position: absolute;
+          top:calc(${top}px - var(--default-button-size)*2);
+          left:50%;
+          transform:translateX(-50%);`
+        }
+      });
+      if (ea2.DEVICE.isMobile) {
+        this.panel.style.top = "auto";
+        this.panel.style.bottom = "8px";
+      }
+      this.setFadeTimeout(this.options.transitionDelay * 3);
+      const panelColumn = this.panel.createDiv({ cls: "panelColumn" });
+      panelColumn.createDiv(
+        {
+          cls: ["Island", "buttonList"],
+          attr: {
+            style: `
+            max-width: calc(100vw - 12px);
+            justify-content: space-between;
+            height: calc(var(--default-button-size)*1.5);
+            width: max-content;
+            background: var(--island-bg-color);
+            display: flex;
+            align-items: center;`
+          }
+        },
+        (buttonList) => {
+          buttonList.createEl("style", {
+            text: `
+            .excalidraw-presentation-panel select:focus { box-shadow: var(--input-shadow); }
+            .excalidraw-presentation-panel .buttonList { max-width: calc(100vw - 12px); }
+            .excalidraw-presentation-panel.slideshow-presentation-panel--mobile .buttonList {
+              flex-wrap: wrap;
+              height: auto !important;
+              justify-content: center !important;
+            }
+            .excalidraw-presentation-panel.slideshow-presentation-panel--mobile select {
+              width: clamp(76px, 24vw, 132px);
+              max-width: 132px;
+              text-overflow: ellipsis;
+            }
+          `
+          });
+          buttonList.createEl(
+            "button",
+            {
+              attr: {
+                style: "margin-left: calc(var(--default-button-size)*0.25);",
+                "aria-label": t("previousSlide")
+              }
+            },
+            (button) => {
+              button.innerHTML = icons.leftArrow;
+              button.onclick = callbacks.previous;
+            }
+          );
+          this.select = buttonList.createEl(
+            "select",
+            {
+              attr: {
+                style: `
+                font-size: inherit;
+                background-color: var(--island-bg-color);
+                border: none;
+                color: var(--color-gray-100);
+                cursor: pointer;`,
+                "aria-label": t("navigateToSlide")
+              }
+            },
+            (selectElement) => {
+              for (let index = 0; index < slidesCount; index += 1) {
+                const option = ownerDocument.createElement("option");
+                option.text = t("presentationSlideTitle", {
+                  title: slideTitles[index] ?? t("slideLabel", { number: index + 1 }),
+                  number: index + 1,
+                  total: slidesCount
+                });
+                option.value = String(index + 1);
+                selectElement.add(option);
+              }
+              selectElement.addEventListener("change", () => {
+                const selectedSlideNumber = Number.parseInt(selectElement.value, 10);
+                selectElement.blur();
+                callbacks.navigateToSlide(selectedSlideNumber);
+              });
+            }
+          );
+          buttonList.createEl(
+            "button",
+            { attr: { "aria-label": t("nextSlide") } },
+            (button) => {
+              button.innerHTML = icons.rightArrow;
+              button.onclick = callbacks.next;
+            }
+          );
+          if (!ea2.DEVICE.isMobile) {
+            buttonList.createDiv({
+              attr: {
+                style: `
+                width: 1px;
+                height: var(--default-button-size);
+                background-color: var(--default-border-color);
+                margin: 0px auto;`
+              }
+            });
+          }
+          buttonList.createEl(
+            "button",
+            { attr: { "aria-label": t("toggleLaser") } },
+            (button) => {
+              button.innerHTML = icons.laserOff;
+              button.onclick = () => {
+                const laserIsOn = callbacks.toggleLaser();
+                button.innerHTML = laserIsOn ? icons.laserOn : icons.laserOff;
+              };
+            }
+          );
+          buttonList.createEl(
+            "button",
+            { attr: { "aria-label": t("refocusSlide") } },
+            (button) => {
+              button.innerHTML = icons.refocus;
+              button.onclick = callbacks.refocus;
+            }
+          );
+          if (!ea2.DEVICE.isMobile) {
+            buttonList.createEl(
+              "button",
+              { attr: { "aria-label": t("toggleFullscreen") } },
+              (button) => {
+                this.fullscreenButton = button;
+                button.innerHTML = this.options.isFullscreen ? icons.minimize : icons.maximize;
+                button.onclick = callbacks.toggleFullscreen;
+              }
+            );
+          }
+          if (pathType === "line") {
+            if (shouldOfferPathVisibility) {
+              let pathHidden = isPathHidden;
+              buttonList.createEl(
+                "button",
+                { attr: { "aria-label": t("pathVisibility") } },
+                (button) => {
+                  const renderPathVisibility = () => {
+                    const label = pathHidden ? t("keepPresentationPathHidden") : t("keepPresentationPathVisible");
+                    button.innerHTML = pathHidden ? icons.eyeOff : icons.eye;
+                    button.setAttribute("aria-label", label);
+                    button.setAttribute("aria-pressed", String(pathHidden));
+                  };
+                  renderPathVisibility();
+                  button.onclick = () => {
+                    pathHidden = !pathHidden;
+                    renderPathVisibility();
+                    callbacks.togglePathVisibility(pathHidden);
+                  };
+                }
+              );
+            }
+            buttonList.createEl(
+              "button",
+              { attr: { "aria-label": t("editSlide") } },
+              (button) => {
+                button.innerHTML = icons.edit;
+                button.onclick = callbacks.editSlide;
+              }
+            );
+          }
+          buttonList.createEl(
+            "button",
+            { attr: { "aria-label": t("openSlideshowPanel") } },
+            (button) => {
+              button.innerHTML = icons.settings;
+              button.onclick = callbacks.openSidepanel;
+            }
+          );
+          if (ea2.DEVICE.isDesktop) {
+            buttonList.createEl(
+              "button",
+              {
+                attr: {
+                  style: "margin-right: calc(var(--default-button-size)*0.25);",
+                  "aria-label": t("printPdf", { width: printSlideWidth, height: printSlideHeight })
+                }
+              },
+              (button) => {
+                button.innerHTML = icons.printer;
+                button.onclick = callbacks.print;
+              }
+            );
+          }
+          buttonList.createEl(
+            "button",
+            {
+              attr: {
+                style: "margin-right: calc(var(--default-button-size)*0.25);",
+                "aria-label": t("endPresentation")
+              }
+            },
+            (button) => {
+              button.innerHTML = icons.finish;
+              button.onclick = callbacks.finish;
+            }
+          );
+        }
+      );
+      this.panel.addEventListener("pointerdown", this.onPointerDown, false);
+      this.panel.addEventListener("mouseenter", this.onMouseEnter, false);
+      this.panel.addEventListener("mouseleave", this.onMouseLeave, false);
+      this.options.ownerWindow.addEventListener("pointerup", this.onPointerUp, false);
+    }
+    /** Repositions the panel and restores the current slide's viewport. */
+    resetPosition(refocus = true) {
+      if (!this.panel) return;
+      const top = this.options.contentElement.innerHeight;
+      if (this.options.ea.DEVICE.isMobile) {
+        this.panel.style.top = "auto";
+        this.panel.style.bottom = "8px";
+      } else {
+        this.panel.style.top = `calc(${top}px - var(--default-button-size)*2)`;
+        this.panel.style.bottom = "auto";
+      }
+      this.panel.style.left = "50%";
+      this.panel.style.transform = "translateX(-50%)";
+      if (refocus) this.options.callbacks.refocus();
+    }
+    /** Updates the slide picker to the one-based slide number. */
+    setSelectedSlide(slideNumber) {
+      if (this.select) this.select.value = String(slideNumber);
+    }
+    /** Updates the fullscreen button without rebuilding the toolbar. */
+    setFullscreen(fullscreen) {
+      if (this.fullscreenButton) {
+        this.fullscreenButton.innerHTML = fullscreen ? this.options.icons.minimize : this.options.icons.maximize;
+      }
+    }
+    /** Removes the panel and every event listener owned by it. */
+    destroy() {
+      this.clearFadeTimeout();
+      this.options.ownerWindow.removeEventListener("pointermove", this.onDrag, true);
+      this.options.ownerWindow.removeEventListener("pointerup", this.onPointerUp, false);
+      this.panel?.removeEventListener("pointerdown", this.onPointerDown, false);
+      this.panel?.removeEventListener("mouseenter", this.onMouseEnter, false);
+      this.panel?.removeEventListener("mouseleave", this.onMouseLeave, false);
+      this.panel?.parentElement?.removeChild(this.panel);
+      this.panel = null;
+      this.select = null;
+      this.fullscreenButton = null;
+    }
+    setFadeTimeout(delay = this.options.transitionDelay) {
+      this.fadeTimeout = this.options.ownerWindow.setTimeout(() => {
+        this.fadeTimeout = 0;
+        if (this.options.ownerDocument.activeElement === this.select) {
+          this.setFadeTimeout(delay);
+          return;
+        }
+        if (this.panel) this.panel.style.opacity = String(this.options.fadeLevel);
+      }, delay);
+    }
+    clearFadeTimeout() {
+      if (this.fadeTimeout) {
+        this.options.ownerWindow.clearTimeout(this.fadeTimeout);
+        this.fadeTimeout = 0;
+      }
+      if (this.panel) this.panel.style.opacity = "1";
+    }
+    onPointerUp = () => {
+      this.options.ownerWindow.removeEventListener("pointermove", this.onDrag, true);
+    };
+    onPointerDown = (event) => {
+      this.clearFadeTimeout();
+      this.setFadeTimeout();
+      if (this.panel && this.panel.style.bottom !== "auto" && this.panel.style.bottom !== "") {
+        this.panel.style.top = `${this.panel.offsetTop}px`;
+        this.panel.style.bottom = "auto";
+      }
+      this.posX2 = event.clientX;
+      this.posY2 = event.clientY;
+      this.options.ownerWindow.addEventListener("pointermove", this.onDrag, true);
+    };
+    onDrag = (event) => {
+      event.preventDefault();
+      this.posX1 = this.posX2 - event.clientX;
+      this.posY1 = this.posY2 - event.clientY;
+      this.posX2 = event.clientX;
+      this.posY2 = event.clientY;
+      this.updatePosition(this.posY1, this.posX1);
+    };
+    updatePosition(deltaY = 0, deltaX = 0) {
+      if (!this.panel) return;
+      this.panel.style.top = `${this.panel.offsetTop - deltaY}px`;
+      this.panel.style.left = `${this.panel.offsetLeft - deltaX}px`;
+    }
+    onMouseEnter = () => this.clearFadeTimeout();
+    onMouseLeave = () => this.setFadeTimeout();
+  };
+
+  // src/sharedUtils/AsyncTaskQueue.ts
+  var AsyncTaskQueue = class {
+    tail = Promise.resolve();
+    generation = 0;
+    pending = /* @__PURE__ */ new Map();
+    enqueue(key, task, isRelevant = () => true) {
+      const existing = this.pending.get(key);
+      if (existing) return existing;
+      const generation = this.generation;
+      const result = this.tail.then(async () => {
+        if (generation !== this.generation || !isRelevant()) return void 0;
+        return await task();
+      });
+      this.pending.set(key, result);
+      this.tail = result.then(
+        () => void 0,
+        () => void 0
+      );
+      const removePending = () => {
+        if (this.pending.get(key) === result) this.pending.delete(key);
+      };
+      void result.then(removePending, removePending);
+      return result;
+    }
+    clear() {
+      this.generation += 1;
+      this.pending.clear();
+    }
+    async idle() {
+      await this.tail;
+    }
+  };
+
+  // src/sharedUtils/ByteBudgetLruCache.ts
+  var ByteBudgetLruCache = class {
+    constructor(maximumSize, dispose) {
+      this.maximumSize = maximumSize;
+      this.dispose = dispose;
+    }
+    values = /* @__PURE__ */ new Map();
+    totalSize = 0;
+    get size() {
+      return this.totalSize;
+    }
+    get(key) {
+      const entry = this.values.get(key);
+      if (!entry) return void 0;
+      this.values.delete(key);
+      this.values.set(key, entry);
+      return entry.value;
+    }
+    set(key, value, size) {
+      this.delete(key);
+      const normalizedSize = Math.max(0, Math.trunc(size));
+      this.values.set(key, { value, size: normalizedSize });
+      this.totalSize += normalizedSize;
+      while (this.totalSize > this.maximumSize && this.values.size > 1) {
+        const oldest = this.values.keys().next().value;
+        if (oldest === void 0) break;
+        this.delete(oldest);
+      }
+    }
+    delete(key) {
+      const entry = this.values.get(key);
+      if (!entry) return false;
+      this.values.delete(key);
+      this.totalSize -= entry.size;
+      this.dispose?.(entry.value);
+      return true;
+    }
+    clear() {
+      for (const entry of this.values.values()) this.dispose?.(entry.value);
+      this.values.clear();
+      this.totalSize = 0;
+    }
+  };
+
+  // src/scripts/slideshow/SlidePreviewService.ts
+  var FALLBACK_BACKGROUND = "#ffffff";
+  var PREVIEW_CACHE_BYTES = 64 * 1024 * 1024;
+  var DEFAULT_PREVIEW_WIDTH = 960;
+  var MAX_PREVIEW_SCALE = 2;
+  var EA_EXPORT_QUEUES = /* @__PURE__ */ new WeakMap();
+  async function withEaExportLock(ea2, task) {
+    const key = ea2;
+    const previous = EA_EXPORT_QUEUES.get(key) ?? Promise.resolve();
+    let release;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    EA_EXPORT_QUEUES.set(key, previous.catch(() => void 0).then(() => gate));
+    await previous.catch(() => void 0);
+    try {
+      return await task();
+    } finally {
+      release?.();
+    }
+  }
+  function getPreviewNavigationRect(slide, maxZoom, printSlideWidth = 1920, printSlideHeight = 1080) {
+    return getNavigationRect(
+      slide.rect,
+      { width: printSlideWidth, height: printSlideHeight },
+      maxZoom
+    );
+  }
+  function cloneWithoutMetadata(element) {
+    const copy = { ...element };
+    const customData = copy.customData;
+    if (typeof customData === "object" && customData !== null && !Array.isArray(customData)) {
+      const visualCustomData = { ...customData };
+      delete visualCustomData.slideshow;
+      if (Object.keys(visualCustomData).length === 0) delete copy.customData;
+      else copy.customData = visualCustomData;
+    }
+    delete copy.version;
+    delete copy.versionNonce;
+    delete copy.updated;
+    return copy;
+  }
+  function getSceneVisualFingerprint(elements) {
+    return JSON.stringify(elements.map(cloneWithoutMetadata));
+  }
+  function readBackgroundColor(appState) {
+    return typeof appState.viewBackgroundColor === "string" ? appState.viewBackgroundColor : FALLBACK_BACKGROUND;
+  }
+  function getHiddenBuildElementIds(slide, completedAnimationSteps, elements) {
+    if (completedAnimationSteps === void 0) return [];
+    const completed = Math.min(
+      Math.max(Math.trunc(completedAnimationSteps), 0),
+      slide.animationSteps.length
+    );
+    const ids = /* @__PURE__ */ new Set();
+    for (const step of slide.animationSteps.slice(completed)) {
+      for (const id of resolveAnimationTargetElementIds(slide.frameId, step.targets, elements)) {
+        ids.add(id);
+      }
+    }
+    return [...ids].sort();
+  }
+  var SlidePreviewService = class {
+    constructor(ea2, api, config) {
+      this.ea = ea2;
+      this.api = api;
+      this.config = config;
+    }
+    queue = new AsyncTaskQueue();
+    cached = new ByteBudgetLruCache(
+      PREVIEW_CACHE_BYTES,
+      (preview) => URL.revokeObjectURL(preview.objectUrl)
+    );
+    generation = 0;
+    lastElements = null;
+    lastFingerprint = "";
+    /** Returns the drawing background used behind previews. */
+    getBackgroundColor() {
+      return readBackgroundColor(this.api.getAppState());
+    }
+    /** Returns the configured presentation aspect ratio used by sorter previews. */
+    getAspectRatio() {
+      return `${this.config.printSlideWidth} / ${this.config.printSlideHeight}`;
+    }
+    /** Drops cached previews and invalidates queued work, for example after switching drawings. */
+    clear() {
+      this.generation += 1;
+      this.queue.clear();
+      this.cached.clear();
+      this.lastElements = null;
+      this.lastFingerprint = "";
+    }
+    getFingerprint(elements) {
+      if (elements === this.lastElements) return this.lastFingerprint;
+      this.lastElements = elements;
+      this.lastFingerprint = getSceneVisualFingerprint(elements);
+      return this.lastFingerprint;
+    }
+    createPreviewElement(cached, ownerDocument) {
+      const image = ownerDocument.createElement("img");
+      image.src = cached.objectUrl;
+      image.alt = "";
+      image.decoding = "async";
+      image.draggable = false;
+      image.setAttribute("aria-hidden", "true");
+      image.style.width = "100%";
+      image.style.height = "100%";
+      image.style.objectFit = "contain";
+      image.style.backgroundColor = cached.backgroundColor;
+      return image;
+    }
+    async exportPreview(elements, slide, hiddenElementIds, originalOpacities, targetWidth, generation, cacheKey) {
+      const appState = this.api.getAppState();
+      const rect = getPreviewNavigationRect(
+        slide,
+        this.config.maxZoom,
+        this.config.printSlideWidth,
+        this.config.printSlideHeight
+      );
+      const exportArea = {
+        x: Math.min(rect.left, rect.right),
+        y: Math.min(rect.top, rect.bottom),
+        width: Math.abs(rect.right - rect.left),
+        height: Math.abs(rect.bottom - rect.top)
+      };
+      const localElements = this.ea.getElementsIntersectionArea(elements, exportArea, {
+        includeBoundElements: true
+      });
+      return await withEaExportLock(this.ea, async () => {
+        if (generation !== this.generation) return void 0;
+        this.ea.clear();
+        try {
+          this.ea.copyViewElementsToEAforEditing(localElements);
+          if (slide.kind === "path") {
+            const hiddenPath = this.ea.getElement(slide.pathId);
+            if (hiddenPath) hiddenPath.opacity = 0;
+          }
+          for (const [id, opacity] of originalOpacities ?? []) {
+            const element = this.ea.getElement(id);
+            if (element) element.opacity = opacity;
+          }
+          for (const id of hiddenElementIds) {
+            const element = this.ea.getElement(id);
+            if (element) element.opacity = 0;
+          }
+          const scale = Math.min(
+            MAX_PREVIEW_SCALE,
+            Math.max(targetWidth / Math.max(exportArea.width, 1), 0.01)
+          );
+          const blob = await this.ea.createViewPNG({
+            withBackground: true,
+            theme: appState.theme,
+            frameRendering: {
+              enabled: true,
+              name: false,
+              outline: false,
+              clip: false
+            },
+            padding: 0,
+            selectedOnly: false,
+            embedScene: false,
+            elementsOverride: this.ea.getElements(),
+            exportArea,
+            scale
+          });
+          if (generation !== this.generation) return void 0;
+          const cached = {
+            objectUrl: URL.createObjectURL(blob),
+            backgroundColor: readBackgroundColor(appState)
+          };
+          this.cached.set(cacheKey, cached, blob.size);
+          return cached;
+        } finally {
+          this.ea.clear();
+        }
+      });
+    }
+    /** Creates a bounded raster preview in the caller's owner document. */
+    async createPreview(slide, ownerDocument, state = {}) {
+      const elements = this.ea.getViewElements();
+      if (elements.length === 0) return null;
+      const hiddenElementIds = slide.kind === "frame" ? getHiddenBuildElementIds(slide, state.completedAnimationSteps, elements) : [];
+      const appState = this.api.getAppState();
+      const targetWidth = Math.max(Math.trunc(state.targetWidth ?? DEFAULT_PREVIEW_WIDTH), 1);
+      const opacityKey = state.originalOpacities ? [...state.originalOpacities.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([id, opacity]) => `${id}:${opacity}`).join(",") : "none";
+      const rect = getPreviewNavigationRect(
+        slide,
+        this.config.maxZoom,
+        this.config.printSlideWidth,
+        this.config.printSlideHeight
+      );
+      const cacheKey = [
+        appState.theme,
+        readBackgroundColor(appState),
+        slide.kind === "path" ? `path:${slide.pathId}` : "frame",
+        `hidden:${hiddenElementIds.join(",")}`,
+        `opacity:${opacityKey}`,
+        `area:${rect.left},${rect.top},${rect.right},${rect.bottom}`,
+        `width:${targetWidth}`,
+        this.getFingerprint(elements)
+      ].join("|");
+      const existing = this.cached.get(cacheKey);
+      if (existing) return this.createPreviewElement(existing, ownerDocument);
+      const generation = this.generation;
+      const cached = await this.queue.enqueue(
+        cacheKey,
+        () => this.exportPreview(
+          elements,
+          slide,
+          hiddenElementIds,
+          state.originalOpacities,
+          targetWidth,
+          generation,
+          cacheKey
+        ),
+        () => generation === this.generation
+      );
+      return cached ? this.createPreviewElement(cached, ownerDocument) : null;
+    }
+  };
+
+  // src/scripts/slideshow/slideshowSettings.ts
+  var DEFAULT_SLIDESHOW_CONFIG = {
+    transitionStepCount: 100,
+    transitionDelay: 1e3,
+    frameSleep: 1,
+    editZoomOut: 0.7,
+    fadeLevel: 0.1,
+    printSlideWidth: 1920,
+    printSlideHeight: 1080,
+    maxZoom: 30
+  };
+  var CONFIG_KEYS = Object.keys(DEFAULT_SLIDESHOW_CONFIG);
+  var START_MODE_SETTING = "slideshowStartMode";
+  var WINDOW_MODE_SETTING = "slideshowWindowMode";
+  var NOTES_MODE_SETTING = "slideshowNotesMode";
+  var PRESENTATION_TYPE_SETTING = "slideshowPresentationType";
+  var DISPLAY_TARGETS_SETTING = "slideshowDisplayTargetsByDevice";
+  var DISPLAY_TARGETS_BY_CONFIGURATION_SETTING = "slideshowDisplayTargetsByDeviceConfiguration";
+  var PRESENTER_NOTES_FONT_SIZE_SETTING = "slideshowPresenterNotesFontSize";
+  var SORTER_THUMBNAIL_MAX_WIDTH_SETTING = "slideshowSorterThumbnailMaxWidth";
+  var LEGACY_LAUNCH_MODE_SETTING = "slideshowLaunchMode";
+  var LEGACY_START_FULLSCREEN_SETTING = "slideshowStartFullscreen";
+  var DEFAULT_PRESENTER_NOTES_FONT_SIZE = 18;
+  var DEFAULT_SORTER_THUMBNAIL_MAX_WIDTH = 280;
+  function readSettings(ea2) {
+    const getSettings = ea2.getScriptSettings;
+    return typeof getSettings === "function" ? getSettings.call(ea2) : {};
+  }
+  function loadSlideshowLaunchPreferences(ea2) {
+    const settings = readSettings(ea2);
+    const legacyMode = settings[LEGACY_LAUNCH_MODE_SETTING];
+    const rawStartMode = settings[START_MODE_SETTING];
+    const startMode = rawStartMode === "resume" || rawStartMode === "current" ? rawStartMode : rawStartMode === "beginning" ? "beginning" : legacyMode === "resume" || legacyMode === "current" ? legacyMode : "beginning";
+    const rawWindowMode = settings[WINDOW_MODE_SETTING];
+    const windowMode = rawWindowMode === "window" || rawWindowMode === "fullscreen" ? rawWindowMode : settings[LEGACY_START_FULLSCREEN_SETTING] === false ? "window" : "fullscreen";
+    const rawNotesMode = settings[NOTES_MODE_SETTING];
+    const notesMode = rawNotesMode === "presenter" || rawNotesMode === "slides" ? rawNotesMode : legacyMode === "presenter" ? "presenter" : "slides";
+    const rawPresentationType = settings[PRESENTATION_TYPE_SETTING];
+    const presentationType = rawPresentationType === "frame" || rawPresentationType === "line" ? rawPresentationType : void 0;
+    return {
+      startMode,
+      windowMode,
+      notesMode,
+      ...presentationType ? { presentationType } : {}
+    };
+  }
+  async function saveSlideshowLaunchPreferences(ea2, preferences) {
+    const settings = ea2.getScriptSettings();
+    await ea2.setScriptSettings({
+      ...settings,
+      [START_MODE_SETTING]: preferences.startMode,
+      [WINDOW_MODE_SETTING]: preferences.windowMode,
+      [NOTES_MODE_SETTING]: preferences.notesMode,
+      ...preferences.presentationType ? { [PRESENTATION_TYPE_SETTING]: preferences.presentationType } : {}
+    });
+  }
+  function asDisplayPreferences(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    const record = value;
+    const normalizeId = (id) => {
+      if (id === null) return null;
+      return typeof id === "number" && Number.isFinite(id) ? id : void 0;
+    };
+    const normalizeIdentity = (identity) => {
+      if (identity === null) return null;
+      return typeof identity === "string" && identity.length > 0 ? identity : void 0;
+    };
+    const presentationDisplayId = normalizeId(record.presentationDisplayId);
+    const presenterDisplayId = normalizeId(record.presenterDisplayId);
+    if (presentationDisplayId === void 0 || presenterDisplayId === void 0) return null;
+    const presentationDisplayIdentity = normalizeIdentity(record.presentationDisplayIdentity);
+    const presenterDisplayIdentity = normalizeIdentity(record.presenterDisplayIdentity);
+    return {
+      presentationDisplayId,
+      presenterDisplayId,
+      ...presentationDisplayIdentity !== void 0 ? { presentationDisplayIdentity } : {},
+      ...presenterDisplayIdentity !== void 0 ? { presenterDisplayIdentity } : {}
+    };
+  }
+  function loadSlideshowDisplayPreferences(ea2, deviceKey, configurationKey) {
+    const settings = readSettings(ea2);
+    if (configurationKey) {
+      const configuredRaw = settings[DISPLAY_TARGETS_BY_CONFIGURATION_SETTING];
+      if (configuredRaw && typeof configuredRaw === "object" && !Array.isArray(configuredRaw)) {
+        const byDevice = configuredRaw[deviceKey];
+        if (byDevice && typeof byDevice === "object" && !Array.isArray(byDevice)) {
+          const configured = asDisplayPreferences(
+            byDevice[configurationKey]
+          );
+          if (configured) return configured;
+        }
+      }
+    }
+    const legacyRaw = settings[DISPLAY_TARGETS_SETTING];
+    if (!legacyRaw || typeof legacyRaw !== "object" || Array.isArray(legacyRaw)) return null;
+    return asDisplayPreferences(legacyRaw[deviceKey]);
+  }
+  async function saveSlideshowDisplayPreferences(ea2, deviceKey, preferences, configurationKey) {
+    const settings = ea2.getScriptSettings();
+    if (!configurationKey) {
+      const existingRaw2 = settings[DISPLAY_TARGETS_SETTING];
+      const existing2 = existingRaw2 && typeof existingRaw2 === "object" && !Array.isArray(existingRaw2) ? existingRaw2 : {};
+      await ea2.setScriptSettings({
+        ...settings,
+        [DISPLAY_TARGETS_SETTING]: {
+          ...existing2,
+          [deviceKey]: { ...preferences }
+        }
+      });
+      return;
+    }
+    const existingRaw = settings[DISPLAY_TARGETS_BY_CONFIGURATION_SETTING];
+    const existing = existingRaw && typeof existingRaw === "object" && !Array.isArray(existingRaw) ? existingRaw : {};
+    const existingDeviceRaw = existing[deviceKey];
+    const existingDevice = existingDeviceRaw && typeof existingDeviceRaw === "object" && !Array.isArray(existingDeviceRaw) ? existingDeviceRaw : {};
+    await ea2.setScriptSettings({
+      ...settings,
+      [DISPLAY_TARGETS_BY_CONFIGURATION_SETTING]: {
+        ...existing,
+        [deviceKey]: {
+          ...existingDevice,
+          [configurationKey]: { ...preferences }
+        }
+      }
+    });
+  }
+  function loadPresenterNotesFontSize(ea2) {
+    const raw = readSettings(ea2)[PRESENTER_NOTES_FONT_SIZE_SETTING];
+    const value = typeof raw === "number" && Number.isFinite(raw) ? raw : DEFAULT_PRESENTER_NOTES_FONT_SIZE;
+    return Math.min(48, Math.max(12, Math.round(value)));
+  }
+  async function savePresenterNotesFontSize(ea2, fontSize) {
+    const value = Math.min(48, Math.max(12, Math.round(fontSize)));
+    await ea2.setScriptSettings({
+      ...ea2.getScriptSettings(),
+      [PRESENTER_NOTES_FONT_SIZE_SETTING]: value
+    });
+  }
+  function loadSorterThumbnailMaxWidth(ea2) {
+    const raw = readSettings(ea2)[SORTER_THUMBNAIL_MAX_WIDTH_SETTING];
+    const value = typeof raw === "number" && Number.isFinite(raw) ? raw : DEFAULT_SORTER_THUMBNAIL_MAX_WIDTH;
+    return Math.min(520, Math.max(140, Math.round(value)));
+  }
+  async function saveSorterThumbnailMaxWidth(ea2, width) {
+    const value = Math.min(520, Math.max(140, Math.round(width)));
+    await ea2.setScriptSettings({
+      ...ea2.getScriptSettings(),
+      [SORTER_THUMBNAIL_MAX_WIDTH_SETTING]: value
+    });
+  }
+  function finiteNumber(value, fallback) {
+    return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+  }
+  function normalizeSlideshowConfig(settings) {
+    return {
+      transitionStepCount: Math.max(
+        1,
+        Math.round(finiteNumber(settings.transitionStepCount, DEFAULT_SLIDESHOW_CONFIG.transitionStepCount))
+      ),
+      transitionDelay: Math.max(
+        1,
+        finiteNumber(settings.transitionDelay, DEFAULT_SLIDESHOW_CONFIG.transitionDelay)
+      ),
+      frameSleep: Math.max(0, finiteNumber(settings.frameSleep, DEFAULT_SLIDESHOW_CONFIG.frameSleep)),
+      editZoomOut: Math.max(
+        0.05,
+        finiteNumber(settings.editZoomOut, DEFAULT_SLIDESHOW_CONFIG.editZoomOut)
+      ),
+      fadeLevel: Math.min(
+        1,
+        Math.max(0, finiteNumber(settings.fadeLevel, DEFAULT_SLIDESHOW_CONFIG.fadeLevel))
+      ),
+      printSlideWidth: Math.max(
+        1,
+        Math.round(finiteNumber(settings.printSlideWidth, DEFAULT_SLIDESHOW_CONFIG.printSlideWidth))
+      ),
+      printSlideHeight: Math.max(
+        1,
+        Math.round(finiteNumber(settings.printSlideHeight, DEFAULT_SLIDESHOW_CONFIG.printSlideHeight))
+      ),
+      maxZoom: Math.max(0.1, finiteNumber(settings.maxZoom, DEFAULT_SLIDESHOW_CONFIG.maxZoom))
+    };
+  }
+  function loadSlideshowConfig(ea2) {
+    return normalizeSlideshowConfig(ea2.getScriptSettings());
+  }
+  async function saveSlideshowConfig(ea2, config) {
+    const existing = ea2.getScriptSettings();
+    const next = { ...existing };
+    for (const key of CONFIG_KEYS) next[key] = config[key];
+    await ea2.setScriptSettings(next);
+  }
+  function resetSlideshowConfigToDefaults(config) {
+    Object.assign(config, DEFAULT_SLIDESHOW_CONFIG);
+  }
+  function addNumberSetting(ea2, container, name, description, value, onChange) {
+    new ea2.obsidian.Setting(container).setName(name).setDesc(description).addText((text) => {
+      text.inputEl.type = "number";
+      text.inputEl.step = "any";
+      text.setValue(String(value)).onChange((raw) => {
+        const parsed = Number(raw);
+        if (Number.isFinite(parsed)) onChange(parsed);
+      });
+    });
+  }
+  function openSlideshowSettingsModal(ea2, config, t, onSaved) {
+    const modal = new ea2.obsidian.Modal(app);
+    modal.titleEl.setText(t("settingsTitle"));
+    const draft = { ...config };
+    const renderContent = () => {
+      const { contentEl } = modal;
+      contentEl.empty();
+      addNumberSetting(
+        ea2,
+        contentEl,
+        t("settingsTransitionStepCount"),
+        t("settingsTransitionStepCountDesc"),
+        draft.transitionStepCount,
+        (value) => {
+          draft.transitionStepCount = value;
+        }
+      );
+      addNumberSetting(
+        ea2,
+        contentEl,
+        t("settingsTransitionDelay"),
+        t("settingsTransitionDelayDesc"),
+        draft.transitionDelay,
+        (value) => {
+          draft.transitionDelay = value;
+        }
+      );
+      addNumberSetting(
+        ea2,
+        contentEl,
+        t("settingsFrameSleep"),
+        t("settingsFrameSleepDesc"),
+        draft.frameSleep,
+        (value) => {
+          draft.frameSleep = value;
+        }
+      );
+      addNumberSetting(
+        ea2,
+        contentEl,
+        t("settingsEditZoomOut"),
+        t("settingsEditZoomOutDesc"),
+        draft.editZoomOut,
+        (value) => {
+          draft.editZoomOut = value;
+        }
+      );
+      addNumberSetting(
+        ea2,
+        contentEl,
+        t("settingsFadeLevel"),
+        t("settingsFadeLevelDesc"),
+        draft.fadeLevel,
+        (value) => {
+          draft.fadeLevel = value;
+        }
+      );
+      addNumberSetting(
+        ea2,
+        contentEl,
+        t("settingsPrintSlideWidth"),
+        t("settingsPrintSlideWidthDesc"),
+        draft.printSlideWidth,
+        (value) => {
+          draft.printSlideWidth = value;
+        }
+      );
+      addNumberSetting(
+        ea2,
+        contentEl,
+        t("settingsPrintSlideHeight"),
+        t("settingsPrintSlideHeightDesc"),
+        draft.printSlideHeight,
+        (value) => {
+          draft.printSlideHeight = value;
+        }
+      );
+      addNumberSetting(
+        ea2,
+        contentEl,
+        t("settingsMaxZoom"),
+        t("settingsMaxZoomDesc"),
+        draft.maxZoom,
+        (value) => {
+          draft.maxZoom = value;
+        }
+      );
+      const actions = contentEl.createDiv({ cls: "modal-button-container" });
+      const resetButton = actions.createEl("button", { text: t("settingsResetDefaults") });
+      resetButton.addEventListener("click", () => {
+        resetSlideshowConfigToDefaults(draft);
+        renderContent();
+      });
+      const cancelButton = actions.createEl("button", { text: t("settingsCancel") });
+      cancelButton.addEventListener("click", () => modal.close());
+      const saveButton = actions.createEl("button", {
+        text: t("settingsSave"),
+        cls: "mod-cta"
+      });
+      saveButton.addEventListener("click", () => {
+        void (async () => {
+          try {
+            const normalized = normalizeSlideshowConfig(
+              draft
+            );
+            await saveSlideshowConfig(ea2, normalized);
+            Object.assign(config, normalized);
+            onSaved();
+            modal.close();
+            new Notice(t("settingsSaved"));
+          } catch (error) {
+            console.error("Slideshow settings save failed", error);
+            new Notice(t("settingsSaveFailed"));
+          }
+        })();
+      });
+    };
+    modal.onOpen = renderContent;
+    modal.open();
+  }
+
+  // src/scripts/slideshow/styles.ts
+  var SLIDESHOW_SIDEPANEL_STYLES = `
+.slideshow-sidepanel { display:flex; flex-direction:column; gap:12px; padding:10px; height:100%; box-sizing:border-box; container-type:inline-size; container-name:slideshow-panel; }
+.slideshow-sidepanel__support { color:var(--text-muted); font-size:var(--font-ui-smaller); line-height:1.3; }
+.slideshow-sidepanel__support a { color:var(--text-accent); }
+.slideshow-sidepanel__header { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+.slideshow-sidepanel__header button { display:inline-flex; align-items:center; justify-content:center; gap:6px; }
+.slideshow-sidepanel__header .slideshow-sidepanel__icon-button { width:36px; height:36px; min-width:36px; padding:7px; }
+.slideshow-sidepanel__launch-main { flex:0 0 auto; }
+.slideshow-sidepanel__launch-settings { border:1px solid var(--background-modifier-border); border-radius:8px; background:var(--background-secondary-alt); overflow:visible; }
+.slideshow-sidepanel__launch-settings-summary { cursor:pointer; padding:8px 10px; color:var(--text-muted); font-size:var(--font-ui-small); font-weight:600; user-select:none; }
+.slideshow-sidepanel__launch-settings[open] .slideshow-sidepanel__launch-settings-summary { border-bottom:1px solid var(--background-modifier-border); }
+.slideshow-sidepanel__launch-options { display:flex; flex-direction:column; gap:7px; padding:9px; }
+.slideshow-sidepanel__launch-option { display:block; min-width:0; }
+.slideshow-sidepanel__launch-option select { width:100%; min-width:0; }
+.slideshow-sidepanel__display-controls { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; padding:0 9px 9px; }
+.slideshow-sidepanel__display-controls label { min-width:0; display:flex; flex-direction:column; gap:4px; color:var(--text-muted); font-size:var(--font-ui-smaller); }
+.slideshow-sidepanel__display-controls select { min-width:0; width:100%; }
+.slideshow-sidepanel__summary-row { display:flex; align-items:center; gap:6px; min-width:0; }
+.slideshow-sidepanel__summary { flex:1 1 auto; min-width:0; color:var(--text-muted); font-size:var(--font-ui-smaller); }
+.slideshow-sidepanel__thumbnail-size-control { flex:0 1 180px; min-width:100px; max-width:240px; display:flex; align-items:center; }
+.slideshow-sidepanel__thumbnail-size-control input { width:100%; min-width:0; margin:0; }
+.slideshow-sidepanel__presentation-settings { flex:0 0 auto; width:28px; height:28px; min-width:28px; padding:5px; }
+.slideshow-sidepanel__path-actions { display:flex; flex-wrap:wrap; gap:8px; }
+.slideshow-sidepanel__path-actions button { display:inline-flex; align-items:center; gap:6px; }
+.slideshow-sorter { display:flex; flex-direction:column; gap:8px; min-height:0; overflow:auto; padding-right:2px; align-items:flex-start; }
+.slideshow-sorter__row { position:relative; display:flex; flex-direction:column; gap:7px; width:100%; box-sizing:border-box; border:1px solid var(--background-modifier-border); border-radius:8px; padding:8px; background:var(--background-primary); outline:none; transition:margin .1s ease; }
+.slideshow-sorter__row:focus, .slideshow-sorter__row.is-selected { border-color:var(--interactive-accent); box-shadow:0 0 0 1px var(--interactive-accent); }
+.slideshow-sorter__row.is-excluded { opacity:.5; }
+.slideshow-sorter__row.is-dragging { opacity:.35; }
+.slideshow-sorter__row.is-drop-before { margin-top:22px; }
+.slideshow-sorter__row.is-drop-after { margin-bottom:22px; }
+.slideshow-sorter__row.is-drop-before::before, .slideshow-sorter__row.is-drop-after::after { content:""; position:absolute; left:8px; right:8px; border-top:2px dashed var(--interactive-accent); pointer-events:none; }
+.slideshow-sorter__row.is-drop-before::before { top:-13px; }
+.slideshow-sorter__row.is-drop-after::after { bottom:-13px; }
+.slideshow-sorter__top { display:flex; flex-direction:column; gap:5px; align-items:stretch; padding:6px 8px; border-radius:6px; background:var(--background-secondary); }
+.slideshow-sorter__top.is-draggable { cursor:grab; user-select:none; background-color:var(--background-secondary); background-image:radial-gradient(circle, var(--background-modifier-border-hover) .8px, transparent .9px); background-size:5px 5px; }
+.slideshow-sorter__top.is-draggable:active { cursor:grabbing; }
+.slideshow-sorter__title-row { display:flex; align-items:center; gap:5px; width:100%; min-width:0; }
+.slideshow-sorter__title { flex:1 1 auto; min-width:0; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; line-height:1.35; }
+.slideshow-sorter__title-edit { flex:0 0 auto; width:22px; height:22px; min-width:22px; padding:3px; display:flex; align-items:center; justify-content:center; }
+.slideshow-sidepanel .slideshow-sorter__title-edit svg { width:14px; height:14px; }
+.slideshow-sorter__badges { width:100%; min-width:0; display:flex; gap:5px; flex-wrap:wrap; justify-content:flex-end; color:var(--text-muted); font-size:var(--font-ui-smaller); }
+.slideshow-sorter__badge { display:inline-flex; align-items:center; gap:3px; white-space:nowrap; }
+.slideshow-sorter__badge svg { width:14px; height:14px; }
+.slideshow-sorter__badge-compact-count { display:none; }
+.slideshow-sorter__content { display:flex; flex-direction:column; gap:6px; align-items:flex-start; min-width:0; }
+.slideshow-sorter__preview { width:min(100%, var(--slideshow-sorter-thumbnail-max-width, 280px)); aspect-ratio:16/9; overflow:hidden; border-radius:5px; background:var(--background-secondary); display:flex; align-items:center; justify-content:center; }
+.slideshow-sorter__preview svg { width:100%; height:100%; display:block; }
+.slideshow-sorter__actions { display:flex; flex-wrap:wrap; gap:3px; align-items:center; }
+.slideshow-sorter__actions button { width:30px; height:30px; padding:5px; display:flex; align-items:center; justify-content:center; }
+.slideshow-sorter__actions button.is-active { color:var(--interactive-accent); background:var(--background-modifier-hover); }
+.slideshow-sorter__actions svg { width:16px; height:16px; }
+.slideshow-notes { border-top:1px solid var(--background-modifier-border); padding-top:8px; display:flex; flex-direction:column; gap:7px; }
+.slideshow-notes textarea { width:100%; min-height:100px; resize:vertical; box-sizing:border-box; }
+.slideshow-notes__hint, .slideshow-warning, .slideshow-empty { color:var(--text-muted); font-size:var(--font-ui-smaller); }
+.slideshow-warning { padding:8px; border-radius:6px; background:var(--background-secondary); }
+.slideshow-sorter__animation { border-top:1px solid var(--background-modifier-border); padding-top:8px; }
+.slideshow-animation-editor { display:flex; flex-direction:column; gap:10px; min-height:0; overflow:visible; padding-bottom:4px; }
+.slideshow-animation-editor__hint, .slideshow-animation-editor__muted { color:var(--text-muted); font-size:var(--font-ui-smaller); }
+.slideshow-animation-editor__section { display:flex; flex-direction:column; gap:6px; }
+.slideshow-animation-editor__section-title { font-weight:600; font-size:var(--font-ui-small); }
+.slideshow-animation-editor__targets { display:flex; flex-wrap:wrap; gap:5px; }
+.slideshow-animation-editor__target { display:inline-flex; align-items:center; gap:4px; padding:3px 4px 3px 7px; border-radius:999px; background:var(--background-secondary); font-size:var(--font-ui-smaller); }
+.slideshow-animation-editor__target button { width:22px; height:22px; min-width:22px; padding:3px; display:flex; align-items:center; justify-content:center; }
+.slideshow-animation-editor__form { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+.slideshow-animation-editor__form label { display:flex; flex-direction:column; gap:4px; color:var(--text-muted); font-size:var(--font-ui-smaller); }
+.slideshow-animation-editor__form select, .slideshow-animation-editor__form input { width:100%; box-sizing:border-box; }
+.slideshow-animation-editor__form-actions { display:flex; flex-wrap:wrap; gap:6px; }
+.slideshow-animation-editor__form-actions button { display:inline-flex; align-items:center; gap:5px; }
+.slideshow-animation-editor__steps { display:flex; flex-direction:column; gap:6px; }
+.slideshow-animation-editor__step { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:6px; padding:6px; border:1px solid var(--background-modifier-border); border-radius:6px; background:var(--background-primary); }
+.slideshow-animation-editor__step.is-selected { border-color:var(--interactive-accent); box-shadow:0 0 0 1px var(--interactive-accent); }
+.slideshow-animation-editor__step-summary { min-width:0; text-align:left; white-space:normal; }
+.slideshow-animation-editor__step-actions { display:grid; grid-template-columns:repeat(2,28px); gap:3px; }
+.slideshow-animation-editor__step-actions button { width:28px; height:28px; padding:4px; display:flex; align-items:center; justify-content:center; }
+
+@container slideshow-panel (max-width: 390px) {
+  .slideshow-sidepanel__display-controls { grid-template-columns:1fr; }
+  .slideshow-animation-editor__form { grid-template-columns:1fr; }
+  .slideshow-animation-editor__step { grid-template-columns:1fr; }
+  .slideshow-animation-editor__step-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; }
+  .slideshow-sorter__actions { justify-content:flex-end; }
 }
+
+.slideshow-sorter:not(.has-expanded-editor) {
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(160px,max(160px,var(--slideshow-sorter-thumbnail-max-width,280px))));
+  align-content:start;
+  align-items:stretch;
+}
+.slideshow-sorter:not(.has-expanded-editor) .slideshow-sorter__row { width:100%; height:100%; box-sizing:border-box; }
+.slideshow-sorter:not(.has-expanded-editor) .slideshow-sorter__top { min-height:0; box-sizing:border-box; }
+.slideshow-sorter:not(.has-expanded-editor) .slideshow-sorter__badges { min-height:18px; flex-wrap:nowrap; overflow:hidden; align-items:center; }
+.slideshow-sorter:not(.has-expanded-editor) .slideshow-sorter__badge { flex:0 0 auto; }
+.slideshow-sorter:not(.has-expanded-editor) .slideshow-sorter__badge-text { display:none; }
+.slideshow-sorter:not(.has-expanded-editor) .slideshow-sorter__badge-compact-count { display:inline; }
+.slideshow-sorter:not(.has-expanded-editor) .slideshow-sorter__content { flex:1 1 auto; justify-content:space-between; align-items:center; }
+.slideshow-sorter:not(.has-expanded-editor) .slideshow-sorter__preview { width:min(100%,var(--slideshow-sorter-thumbnail-max-width,280px)); margin-inline:auto; }
+.slideshow-sorter:not(.has-expanded-editor) .slideshow-sorter__actions { width:100%; justify-content:center; }
+.slideshow-sorter:not(.has-expanded-editor) .slideshow-sorter__actions button { width:26px; height:26px; padding:4px; }
+.slideshow-sorter:not(.has-expanded-editor) .slideshow-sorter__actions svg { width:15px; height:15px; }
+.slideshow-sorter:not(.has-expanded-editor) .slideshow-sorter__row.is-drop-before,
+.slideshow-sorter:not(.has-expanded-editor) .slideshow-sorter__row.is-drop-after { margin:0; }
+.slideshow-sorter:not(.has-expanded-editor) .slideshow-sorter__row.is-drop-before::before,
+.slideshow-sorter:not(.has-expanded-editor) .slideshow-sorter__row.is-drop-after::after { top:8px; bottom:8px; width:0; border-top:0; border-left:2px dashed var(--interactive-accent); }
+.slideshow-sorter:not(.has-expanded-editor) .slideshow-sorter__row.is-drop-before::before { left:-6px; right:auto; }
+.slideshow-sorter:not(.has-expanded-editor) .slideshow-sorter__row.is-drop-after::after { right:-6px; left:auto; }
+.slideshow-sorter.has-expanded-editor .slideshow-sorter__row { width:min(100%,820px); box-sizing:border-box; }
+
+@container slideshow-panel (max-width: 300px) {
+  .slideshow-sorter:not(.has-expanded-editor) { display:flex; }
+  .slideshow-sorter:not(.has-expanded-editor) .slideshow-sorter__row { width:100%; height:auto; }
+  .slideshow-sorter:not(.has-expanded-editor) .slideshow-sorter__top { min-height:0; }
+  .slideshow-sorter:not(.has-expanded-editor) .slideshow-sorter__badges { min-height:0; flex-wrap:wrap; overflow:visible; }
+  .slideshow-sorter:not(.has-expanded-editor) .slideshow-sorter__badge-text { display:inline; }
+  .slideshow-sorter:not(.has-expanded-editor) .slideshow-sorter__badge-compact-count { display:none; }
+  .slideshow-sorter__actions { justify-content:flex-start; }
+}
+
+.slideshow-sidepanel button svg { width:16px; height:16px; }
+`;
+  var SLIDESHOW_PRESENTER_STYLES = `
+.slideshow-presenter { display:flex; flex-direction:column; gap:14px; height:100%; box-sizing:border-box; padding:16px; overflow:auto; background:var(--background-primary); color:var(--text-normal); }
+.slideshow-presenter__header { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+.slideshow-presenter__heading { min-width:0; display:flex; flex-direction:column; gap:3px; }
+.slideshow-presenter__title { font-size:var(--font-ui-large); font-weight:700; line-height:1.25; overflow-wrap:anywhere; }
+.slideshow-presenter__counter { color:var(--text-muted); font-size:var(--font-ui-small); }
+.slideshow-presenter__header-actions { display:flex; gap:6px; flex:0 0 auto; }
+.slideshow-presenter__font-size-control { display:none; align-items:center; gap:6px; color:var(--text-muted); font-size:var(--font-ui-smaller); white-space:nowrap; }
+.slideshow-presenter__font-size-control input { width:120px; }
+.slideshow-presenter__close, .slideshow-presenter__layout-toggle { flex:0 0 auto; width:38px; height:38px; display:flex; align-items:center; justify-content:center; }
+.slideshow-presenter__layout-toggle.is-active { color:var(--interactive-accent); background:var(--background-modifier-hover); }
+.slideshow-presenter__grid { display:grid; flex:1 1 auto; grid-template-columns:minmax(220px,.8fr) minmax(300px,1.2fr); grid-template-rows:auto minmax(160px,1fr); grid-template-areas:"current next" "notes next"; gap:16px; align-items:stretch; min-height:0; }
+.slideshow-presenter__column { min-width:0; display:flex; flex-direction:column; gap:9px; }
+.slideshow-presenter__column:nth-child(1) { grid-area:current; }
+.slideshow-presenter__column:nth-child(2) { grid-area:next; }
+.slideshow-presenter__notes-column { grid-area:notes; min-height:0; height:100%; }
+.slideshow-presenter__section-title { color:var(--text-muted); font-size:var(--font-ui-smaller); font-weight:600; text-transform:uppercase; letter-spacing:.04em; }
+.slideshow-presenter__preview { width:100%; overflow:hidden; border-radius:8px; background:var(--background-secondary); border:1px solid var(--background-modifier-border); display:flex; align-items:center; justify-content:center; }
+.slideshow-presenter__preview svg { width:100%; height:100%; display:block; }
+.slideshow-presenter__current-preview { max-width:520px; }
+.slideshow-presenter__next-preview { width:100%; }
+.slideshow-presenter__end { display:flex; align-items:center; justify-content:center; min-height:180px; color:var(--text-muted); font-size:var(--font-ui-medium); border:1px dashed var(--background-modifier-border); border-radius:8px; }
+.slideshow-presenter__notes { flex:1 1 auto; min-height:120px; padding:12px; border-radius:8px; background:var(--background-secondary); border:1px solid var(--background-modifier-border); overflow-wrap:anywhere; overflow:auto; }
+.slideshow-presenter__notes.is-empty { color:var(--text-muted); font-style:italic; }
+.slideshow-presenter__progress { display:flex; align-items:center; gap:8px; color:var(--text-muted); font-size:var(--font-ui-small); }
+.slideshow-presenter__controls { display:flex; flex-wrap:wrap; gap:8px; margin-top:auto; padding-top:4px; }
+.slideshow-presenter__controls button { min-width:44px; min-height:40px; display:inline-flex; align-items:center; justify-content:center; gap:6px; }
+.slideshow-presenter__controls svg, .slideshow-presenter__close svg, .slideshow-presenter__layout-toggle svg { width:18px; height:18px; }
+.slideshow-presenter.is-notes-focused { overflow:hidden; }
+.slideshow-presenter.is-notes-focused .slideshow-presenter__grid { flex:1; grid-template-columns:minmax(0,17fr) minmax(150px,3fr); grid-template-rows:minmax(0,1fr) minmax(0,1fr); grid-template-areas:"notes current" "notes next"; align-items:stretch; }
+.slideshow-presenter.is-notes-focused .slideshow-presenter__notes-column { min-height:0; }
+.slideshow-presenter.is-notes-focused .slideshow-presenter__font-size-control { display:flex; }
+.slideshow-presenter.is-notes-focused .slideshow-presenter__notes { flex:1; min-height:0; font-size:var(--slideshow-presenter-notes-font-size, 18px); }
+.slideshow-presenter.is-notes-focused .slideshow-presenter__current-preview { max-width:none; }
+.slideshow-presenter.is-notes-focused .slideshow-presenter__column:nth-child(1), .slideshow-presenter.is-notes-focused .slideshow-presenter__column:nth-child(2) { min-height:0; overflow:hidden; }
+@media (max-width: 700px) {
+  .slideshow-presenter__grid, .slideshow-presenter.is-notes-focused .slideshow-presenter__grid { flex:none; grid-template-columns:1fr; grid-template-rows:auto; grid-template-areas:"current" "next" "notes"; }
+  .slideshow-presenter__current-preview { max-width:none; }
+  .slideshow-presenter.is-notes-focused { overflow:auto; }
+}
+`;
+
+  // src/scripts/slideshow/PresenterViewController.ts
+  async function waitForPresenterOwnerWindow(leaf, hostWindow, timeoutMs = 3e3) {
+    const started = Date.now();
+    while (Date.now() - started <= timeoutMs) {
+      const win = leaf.view.containerEl.ownerDocument.defaultView;
+      if (win && win !== hostWindow) return { win, elapsedMs: Date.now() - started };
+      await sleepInWindow(hostWindow, 50);
+    }
+    return { win: null, elapsedMs: Date.now() - started };
+  }
+  function getPresenterKeyboardAction(key) {
+    switch (key) {
+      case " ":
+      case "Space":
+      case "Spacebar":
+      case "ArrowRight":
+      case "ArrowDown":
+        return "next";
+      case "ArrowLeft":
+      case "ArrowUp":
+        return "previous";
+      case "Home":
+        return "first";
+      case "End":
+        return "last";
+      case "Backspace":
+      case "Escape":
+        return "finish";
+      default:
+        return null;
+    }
+  }
+  var PresenterViewController = class {
+    constructor(options) {
+      this.options = options;
+      this.previewService = new SlidePreviewService(options.ea, options.api, options.config);
+      this.notesFontSize = loadPresenterNotesFontSize(options.ea);
+    }
+    leaf = null;
+    ownerWindow = null;
+    root = null;
+    titleEl = null;
+    counterEl = null;
+    currentPreviewEl = null;
+    nextPreviewEl = null;
+    notesEl = null;
+    progressEl = null;
+    layoutButton = null;
+    notesFocusedLayout = false;
+    notesFontSize;
+    nextSectionTitleEl = null;
+    markdownComponent = null;
+    lastNotesSlideId = null;
+    updateGeneration = 0;
+    previewQueue = Promise.resolve();
+    closed = false;
+    destroying = false;
+    previewService;
+    /** Opens the popout, waits for real window migration, and renders its initial state. */
+    async open(initialState) {
+      if (this.leaf) {
+        this.update(initialState);
+        await app.workspace.revealLeaf(this.leaf);
+        app.workspace.setActiveLeaf(this.leaf, { focus: true });
+        return;
+      }
+      const leaf = app.workspace.openPopoutLeaf();
+      this.leaf = leaf;
+      await app.workspace.revealLeaf(leaf);
+      app.workspace.setActiveLeaf(leaf, { focus: true });
+      const migrated = await waitForPresenterOwnerWindow(leaf, this.options.hostView.ownerWindow);
+      const win = migrated.win;
+      if (!win) {
+        leaf.detach();
+        this.leaf = null;
+        throw new Error("Presenter popout did not migrate to a distinct window.");
+      }
+      const container = leaf.view.containerEl;
+      const doc = container.ownerDocument;
+      this.ownerWindow = win;
+      doc.title = this.options.t("presenterViewTitle");
+      const headerTitle = container.querySelector(".view-header-title");
+      if (headerTitle) headerTitle.textContent = this.options.t("presenterViewTitle");
+      const content = container.querySelector(".view-content") ?? container;
+      content.replaceChildren();
+      this.renderShell(content, doc);
+      win.addEventListener("keydown", this.keydownListener, true);
+      win.addEventListener("beforeunload", this.windowClosingListener, { once: true });
+      this.update(initialState);
+      app.workspace.setActiveLeaf(leaf, { focus: true });
+      await sleepInWindow(win, 100);
+      if (this.options.targetDisplayId !== void 0) {
+        const sameNative = resolveSameNativeWindow(this.options.hostView.ownerWindow, win);
+        if (sameNative === false) {
+          const moved = moveWindowToDisplay(win, this.options.targetDisplayId, true);
+          if (moved) {
+            await waitForWindowOnDisplay(win, this.options.targetDisplayId, 2500);
+            await sleepInWindow(win, 150);
+          }
+        }
+      }
+    }
+    /** Brings an already-open presenter window to the foreground. */
+    async focus() {
+      if (!this.leaf) return;
+      await app.workspace.revealLeaf(this.leaf);
+      app.workspace.setActiveLeaf(this.leaf, { focus: true });
+    }
+    /** Updates text synchronously and refreshes previews/Markdown asynchronously. */
+    update(state) {
+      if (this.closed || !this.root) return;
+      const slide = this.getSlide(state.currentSlideId);
+      if (this.titleEl) {
+        this.titleEl.textContent = slide?.title ?? this.options.t("slideLabel", { number: state.currentIndex + 1 });
+      }
+      if (this.counterEl) {
+        this.counterEl.textContent = this.options.t("presenterSlideCounter", {
+          number: state.currentIndex + 1,
+          total: state.visibleSlideCount
+        });
+      }
+      if (this.progressEl) {
+        this.progressEl.textContent = state.animationStepCount > 0 ? this.options.t("presenterAnimationProgress", {
+          completed: state.completedAnimationSteps,
+          total: state.animationStepCount
+        }) : this.options.t("presenterNoAnimations");
+      }
+      if (this.nextSectionTitleEl) {
+        this.nextSectionTitleEl.textContent = state.nextAction === "build" ? this.options.t("presenterNextBuild") : this.options.t("presenterNextSlide");
+      }
+      const generation = ++this.updateGeneration;
+      if (state.currentSlideId !== this.lastNotesSlideId) {
+        this.lastNotesSlideId = state.currentSlideId;
+        void this.renderNotes(slide, generation);
+      }
+      const queuedPreview = this.previewQueue.then(async () => {
+        if (generation !== this.updateGeneration || this.closed) return;
+        await this.renderPreviews(state, generation);
+      });
+      this.previewQueue = queuedPreview.catch((error) => {
+        console.error("Slideshow presenter preview failed", error);
+      });
+    }
+    /** Waits for any in-flight EA-backed preview export to release the shared workbench. */
+    async waitForIdle() {
+      await this.previewQueue;
+    }
+    /** Removes listeners/renderers and optionally detaches the presenter leaf/popout. */
+    async destroy(detachLeaf = true) {
+      if (this.destroying) return;
+      this.destroying = true;
+      const leaf = this.leaf;
+      const win = this.ownerWindow;
+      this.closed = true;
+      this.updateGeneration += 1;
+      if (win) {
+        win.removeEventListener("keydown", this.keydownListener, true);
+        win.removeEventListener("beforeunload", this.windowClosingListener);
+      }
+      this.markdownComponent?.unload();
+      this.markdownComponent = null;
+      this.root?.remove();
+      this.root = null;
+      this.leaf = null;
+      this.ownerWindow = null;
+      if (detachLeaf && leaf) {
+        try {
+          leaf.detach();
+        } catch {
+        }
+      }
+      await this.previewQueue.catch(() => void 0);
+      this.previewService.clear();
+      this.options.onClosed();
+    }
+    renderShell(content, doc) {
+      const style = doc.createElement("style");
+      style.textContent = SLIDESHOW_PRESENTER_STYLES;
+      content.appendChild(style);
+      const root = doc.createElement("div");
+      root.className = "slideshow-presenter";
+      root.style.setProperty("--slideshow-presenter-notes-font-size", `${this.notesFontSize}px`);
+      content.appendChild(root);
+      this.root = root;
+      const header = doc.createElement("div");
+      header.className = "slideshow-presenter__header";
+      root.appendChild(header);
+      const heading = doc.createElement("div");
+      heading.className = "slideshow-presenter__heading";
+      header.appendChild(heading);
+      this.titleEl = doc.createElement("div");
+      this.titleEl.className = "slideshow-presenter__title";
+      heading.appendChild(this.titleEl);
+      this.counterEl = doc.createElement("div");
+      this.counterEl.className = "slideshow-presenter__counter";
+      heading.appendChild(this.counterEl);
+      const headerActions = doc.createElement("div");
+      headerActions.className = "slideshow-presenter__header-actions";
+      header.appendChild(headerActions);
+      this.layoutButton = doc.createElement("button");
+      this.layoutButton.type = "button";
+      this.layoutButton.className = "slideshow-presenter__layout-toggle";
+      this.layoutButton.innerHTML = this.options.icons.notebookPen;
+      this.layoutButton.addEventListener("click", () => this.toggleNotesFocusedLayout());
+      headerActions.appendChild(this.layoutButton);
+      this.updateLayoutButton();
+      const fontSizeControl = doc.createElement("label");
+      fontSizeControl.className = "slideshow-presenter__font-size-control";
+      fontSizeControl.setAttribute("aria-label", this.options.t("presenterNotesFontSize"));
+      const fontSizeLabel = doc.createElement("span");
+      fontSizeLabel.textContent = this.options.t("presenterNotesFontSize");
+      fontSizeControl.appendChild(fontSizeLabel);
+      const fontSizeSlider = doc.createElement("input");
+      fontSizeSlider.type = "range";
+      fontSizeSlider.min = "12";
+      fontSizeSlider.max = "48";
+      fontSizeSlider.step = "1";
+      fontSizeSlider.value = String(this.notesFontSize);
+      fontSizeSlider.addEventListener("input", () => {
+        this.notesFontSize = Number(fontSizeSlider.value);
+        root.style.setProperty("--slideshow-presenter-notes-font-size", `${this.notesFontSize}px`);
+      });
+      fontSizeSlider.addEventListener("change", () => {
+        void savePresenterNotesFontSize(this.options.ea, this.notesFontSize).catch((error) => {
+          console.error("Slideshow presenter notes font-size save failed", error);
+        });
+      });
+      fontSizeControl.appendChild(fontSizeSlider);
+      headerActions.appendChild(fontSizeControl);
+      const close = doc.createElement("button");
+      close.type = "button";
+      close.className = "slideshow-presenter__close";
+      close.setAttribute("aria-label", this.options.t("presenterClose"));
+      close.innerHTML = this.options.icons.close;
+      close.addEventListener("click", () => void this.destroy(true));
+      headerActions.appendChild(close);
+      const grid = doc.createElement("div");
+      grid.className = "slideshow-presenter__grid";
+      root.appendChild(grid);
+      const currentColumn = doc.createElement("section");
+      currentColumn.className = "slideshow-presenter__column";
+      grid.appendChild(currentColumn);
+      currentColumn.appendChild(this.sectionTitle(doc, this.options.t("presenterCurrentSlide")));
+      this.currentPreviewEl = doc.createElement("div");
+      this.currentPreviewEl.className = "slideshow-presenter__preview slideshow-presenter__current-preview";
+      this.currentPreviewEl.style.aspectRatio = this.previewService.getAspectRatio();
+      currentColumn.appendChild(this.currentPreviewEl);
+      const nextColumn = doc.createElement("section");
+      nextColumn.className = "slideshow-presenter__column";
+      grid.appendChild(nextColumn);
+      this.nextSectionTitleEl = this.sectionTitle(doc, this.options.t("presenterNextSlide"));
+      nextColumn.appendChild(this.nextSectionTitleEl);
+      this.nextPreviewEl = doc.createElement("div");
+      this.nextPreviewEl.className = "slideshow-presenter__preview slideshow-presenter__next-preview";
+      this.nextPreviewEl.style.aspectRatio = this.previewService.getAspectRatio();
+      nextColumn.appendChild(this.nextPreviewEl);
+      this.progressEl = doc.createElement("div");
+      this.progressEl.className = "slideshow-presenter__progress";
+      nextColumn.appendChild(this.progressEl);
+      const notesColumn = doc.createElement("section");
+      notesColumn.className = "slideshow-presenter__column slideshow-presenter__notes-column";
+      grid.appendChild(notesColumn);
+      notesColumn.appendChild(this.sectionTitle(doc, this.options.t("presenterNotes")));
+      this.notesEl = doc.createElement("div");
+      this.notesEl.className = "slideshow-presenter__notes";
+      notesColumn.appendChild(this.notesEl);
+      const controls = doc.createElement("div");
+      controls.className = "slideshow-presenter__controls";
+      root.appendChild(controls);
+      controls.appendChild(this.iconButton(doc, this.options.icons.leftArrow, this.options.t("previousSlide"), this.options.callbacks.previous));
+      controls.appendChild(this.iconButton(doc, this.options.icons.rightArrow, this.options.t("nextSlide"), this.options.callbacks.next));
+      controls.appendChild(this.iconButton(doc, this.options.icons.finish, this.options.t("endPresentation"), this.options.callbacks.finish));
+    }
+    toggleNotesFocusedLayout() {
+      this.notesFocusedLayout = !this.notesFocusedLayout;
+      this.root?.classList.toggle("is-notes-focused", this.notesFocusedLayout);
+      this.updateLayoutButton();
+    }
+    updateLayoutButton() {
+      if (!this.layoutButton) return;
+      const label = this.options.t(
+        this.notesFocusedLayout ? "presenterStandardLayout" : "presenterNotesFocusLayout"
+      );
+      this.layoutButton.setAttribute("aria-label", label);
+      this.layoutButton.classList.toggle("is-active", this.notesFocusedLayout);
+    }
+    sectionTitle(doc, text) {
+      const title = doc.createElement("div");
+      title.className = "slideshow-presenter__section-title";
+      title.textContent = text;
+      return title;
+    }
+    iconButton(doc, icon, label, callback) {
+      const button = doc.createElement("button");
+      button.type = "button";
+      button.setAttribute("aria-label", label);
+      button.innerHTML = icon;
+      button.addEventListener("click", callback);
+      return button;
+    }
+    getSlide(slideId) {
+      if (!slideId) return null;
+      return this.options.setup.deck.visibleSlides.find((slide) => slide.id === slideId) ?? null;
+    }
+    async renderNotes(slide, generation) {
+      const notesEl = this.notesEl;
+      if (!notesEl) return;
+      this.markdownComponent?.unload();
+      this.markdownComponent = null;
+      notesEl.replaceChildren();
+      const notes = slide?.notes?.trim() ?? "";
+      notesEl.classList.toggle("is-empty", notes.length === 0);
+      if (!notes) {
+        notesEl.textContent = this.options.t("presenterNoNotes");
+        return;
+      }
+      const component = new this.options.ea.obsidian.Component();
+      component.load();
+      this.markdownComponent = component;
+      try {
+        await this.options.ea.obsidian.MarkdownRenderer.render(
+          app,
+          notes,
+          notesEl,
+          this.options.hostView.file.path,
+          component
+        );
+        if (generation !== this.updateGeneration) component.unload();
+      } catch (error) {
+        if (generation === this.updateGeneration) notesEl.textContent = notes;
+        console.error("Slideshow presenter notes render failed", error);
+      }
+    }
+    async renderPreviews(state, generation) {
+      const currentHost = this.currentPreviewEl;
+      const nextHost = this.nextPreviewEl;
+      if (!currentHost || !nextHost) return;
+      const doc = currentHost.ownerDocument;
+      const currentSlide = this.getSlide(state.currentSlideId);
+      const nextSlide = this.getSlide(state.nextSlideId);
+      const originalOpacities = this.options.getAnimationOriginalOpacities?.();
+      const currentPreview = currentSlide ? await this.previewService.createPreview(
+        currentSlide,
+        doc,
+        currentSlide.kind === "frame" ? {
+          completedAnimationSteps: state.completedAnimationSteps,
+          ...originalOpacities ? { originalOpacities } : {},
+          targetWidth: 1280
+        } : { targetWidth: 1280 }
+      ) : null;
+      const nextPreview = nextSlide ? await this.previewService.createPreview(
+        nextSlide,
+        doc,
+        nextSlide.kind === "frame" ? {
+          completedAnimationSteps: state.nextCompletedAnimationSteps ?? 0,
+          ...originalOpacities ? { originalOpacities } : {},
+          targetWidth: 1280
+        } : { targetWidth: 1280 }
+      ) : null;
+      if (generation !== this.updateGeneration || this.closed) return;
+      currentHost.replaceChildren();
+      if (currentPreview) currentHost.appendChild(currentPreview);
+      nextHost.replaceChildren();
+      if (nextPreview) {
+        nextHost.classList.remove("slideshow-presenter__end");
+        nextHost.appendChild(nextPreview);
+      } else {
+        nextHost.classList.add("slideshow-presenter__end");
+        nextHost.textContent = this.options.t("presenterEnd");
+      }
+    }
+    keydownListener = (event) => {
+      if (event.defaultPrevented || event.repeat) return;
+      const target = event.target;
+      if (target?.matches("input, textarea, select, [contenteditable='true']")) return;
+      const action = getPresenterKeyboardAction(event.key);
+      if (!action) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      switch (action) {
+        case "next":
+          this.options.callbacks.next();
+          break;
+        case "previous":
+          this.options.callbacks.previous();
+          break;
+        case "first":
+          this.options.callbacks.first();
+          break;
+        case "last":
+          this.options.callbacks.last();
+          break;
+        case "finish":
+          this.options.callbacks.finish();
+          break;
+      }
+    };
+    windowClosingListener = () => {
+      void this.destroy(false);
+    };
+  };
+
+  // src/scripts/slideshow/presentationState.ts
+  function buildPresentationState(deck, currentIndex, animationState = { completedSteps: 0, stepCount: 0 }) {
+    const visibleSlides = deck.visibleSlides;
+    const boundedIndex = Math.min(Math.max(currentIndex, 0), Math.max(visibleSlides.length - 1, 0));
+    const current = visibleSlides[boundedIndex];
+    const followingSlide = visibleSlides[boundedIndex + 1];
+    const hasPendingBuild = Boolean(current) && animationState.completedSteps < animationState.stepCount;
+    return {
+      currentSlideId: current?.id ?? "",
+      currentIndex: boundedIndex,
+      visibleSlideCount: visibleSlides.length,
+      completedAnimationSteps: animationState.completedSteps,
+      animationStepCount: animationState.stepCount,
+      nextSlideId: hasPendingBuild ? current?.id ?? null : followingSlide?.id ?? null,
+      nextAction: hasPendingBuild ? "build" : followingSlide ? "slide" : "end",
+      nextCompletedAnimationSteps: hasPendingBuild ? Math.min(animationState.completedSteps + 1, animationState.stepCount) : followingSlide ? 0 : null
+    };
+  }
+
+  // src/sharedUtils/SingleNotice.ts
+  var SingleNotice = class {
+    notice = null;
+    noticeElement = null;
+    /** Shows a new notice or replaces the current notice's message. */
+    setMessage(message) {
+      if (this.notice && this.noticeElement?.parentElement) {
+        this.notice.setMessage(message);
+        return;
+      }
+      this.notice = new Notice(message, 0);
+      this.noticeElement = this.notice.containerEl ?? this.notice.noticeEl;
+    }
+    /** Hides the notice if it is currently attached. */
+    hide() {
+      if (this.noticeElement?.parentElement) {
+        this.notice?.hide();
+      }
+    }
+  };
+
+  // src/scripts/slideshow/printToPdf.ts
+  async function printSlideshowToPdf(options) {
+    const { event, ea: ea2, api, slides, printSlideWidth, printSlideHeight, maxZoom, t } = options;
+    const appState = api.getAppState();
+    const slideWidth = event.shiftKey ? appState.width : printSlideWidth;
+    const slideHeight = event.shiftKey ? appState.height : printSlideHeight;
+    const shouldClipFrames = false;
+    const notice = new SingleNotice();
+    notice.setMessage(t("generatingImage"));
+    const pages = [];
+    for (const [index, slide] of slides.entries()) {
+      notice.setMessage(t("generatingSlide", { number: index + 1 }));
+      const rect = getNavigationRect(
+        slide,
+        { width: slideWidth, height: slideHeight },
+        maxZoom
+      );
+      const width = Math.abs(rect.left - rect.right);
+      const height = Math.abs(rect.top - rect.bottom);
+      const page = await ea2.createViewSVG({
+        withBackground: true,
+        theme: appState.theme,
+        frameRendering: {
+          enabled: shouldClipFrames,
+          name: false,
+          outline: false,
+          clip: shouldClipFrames
+        },
+        padding: 0,
+        selectedOnly: false,
+        skipInliningFonts: false,
+        embedScene: false,
+        exportArea: {
+          x: Math.min(rect.left, rect.right),
+          y: Math.min(rect.top, rect.bottom),
+          width,
+          height
+        }
+      });
+      page.setAttribute("width", `${width}`);
+      page.setAttribute("height", `${height}`);
+      pages.push(page);
+    }
+    notice.setMessage(t("creatingPdf"));
+    try {
+      await ea2.createPDF({
+        SVG: pages,
+        scale: { fitToPage: true },
+        pageProps: {
+          dimensions: { width: slideWidth, height: slideHeight },
+          backgroundColor: api.getAppState().viewBackgroundColor,
+          margin: { left: 0, right: 0, top: 0, bottom: 0 },
+          alignment: "center"
+        },
+        filename: `${ea2.targetView?.file.basename ?? "slideshow"}.pdf`
+      });
+    } finally {
+      notice.hide();
+    }
+  }
+
+  // src/scripts/slideshow/SlideshowController.ts
+  var SlideshowController = class {
+    ea;
+    api;
+    hostView;
+    hostLeaf;
+    ownerWindow;
+    ownerDocument;
+    contentElement;
+    setup;
+    config;
+    icons;
+    statusBarElement;
+    shouldStartFullscreen;
+    openPresenterViewOnStart;
+    presentationDisplayId;
+    presenterDisplayId;
+    t;
+    onSlideChange;
+    onExit;
+    openSidepanel;
+    animationRuntime;
+    controls = null;
+    presenter = null;
+    slide;
+    isFullscreen = false;
+    isLaserOn = false;
+    shouldSaveAfterPresentation = false;
+    busy = false;
+    preventFullscreenExit = true;
+    exitPromise = null;
+    navigationQueue = Promise.resolve();
+    stateEmissionPauseDepth = 0;
+    hostWindowPlacement = null;
+    hostPlacementPrepared = false;
+    hiddenMobileNavbars = [];
+    constructor(options) {
+      this.ea = options.ea;
+      this.api = options.api;
+      this.hostView = options.hostView;
+      this.hostLeaf = options.hostView.leaf;
+      this.ownerWindow = options.hostView.ownerWindow;
+      this.ownerDocument = options.hostView.ownerDocument;
+      this.contentElement = options.hostView.contentEl;
+      this.setup = options.setup;
+      this.config = options.config;
+      this.icons = options.icons;
+      this.statusBarElement = options.statusBarElement;
+      this.slide = Math.min(
+        Math.max(options.initialSlide, 0),
+        Math.max(options.setup.slides.length - 1, 0)
+      );
+      this.shouldStartFullscreen = options.ea.DEVICE.isMobile ? true : options.startFullscreen;
+      this.openPresenterViewOnStart = options.openPresenterViewOnStart ?? false;
+      this.presentationDisplayId = options.presentationDisplayId;
+      this.presenterDisplayId = options.presenterDisplayId;
+      this.t = options.t;
+      this.onSlideChange = options.onSlideChange;
+      this.onExit = options.onExit;
+      this.openSidepanel = options.openSidepanel;
+      this.animationRuntime = options.setup.pathType === "frame" ? new AnimationRuntime({
+        ea: options.ea,
+        api: options.api,
+        hostView: options.hostView,
+        onStateChange: () => this.emitPresentationState()
+      }) : null;
+    }
+    /** Starts the presentation and installs all temporary UI and handlers. */
+    async start() {
+      this.ea.setView(this.hostView);
+      this.hideMobileNavbar();
+      if (this.statusBarElement) this.statusBarElement.style.display = "none";
+      this.ea.setViewModeEnabled(true);
+      const helpButton = this.hostView.excalidrawContainer?.querySelector(
+        ".ToolIcon__icon.help-icon"
+      );
+      if (helpButton) helpButton.style.display = "none";
+      const zoomButton = this.hostView.excalidrawContainer?.querySelector(
+        ".Stack.Stack_vertical.zoom-actions"
+      );
+      if (zoomButton) zoomButton.style.display = "none";
+      this.createControls();
+      this.initializeEventListeners();
+      this.hostWindowPlacement = captureWindowPlacement(this.ownerWindow);
+      if (this.openPresenterViewOnStart) {
+        await this.openPresenterView();
+        app.workspace.setActiveLeaf(this.hostLeaf, { focus: true });
+      }
+      await this.prepareHostWindowPlacement(this.shouldStartFullscreen);
+      if (this.shouldStartFullscreen) await this.gotoFullscreen(false);
+      else this.controls?.resetPosition(false);
+      if (this.setup.pathType === "line") await this.togglePathVisibility(this.setup.isHidden);
+      this.stateEmissionPauseDepth += 1;
+      try {
+        await this.enterSlide(this.slide, false);
+      } finally {
+        this.stateEmissionPauseDepth -= 1;
+      }
+      this.controls?.setSelectedSlide(this.slide + 1);
+      this.emitPresentationState();
+      this.hostView.clearDirty();
+    }
+    /** Advances this presentation when the script is invoked again for its view. */
+    advance() {
+      this.enqueueNavigation(() => this.navigate("fwd"));
+    }
+    /** Navigates backward through builds/slides from presenter-window controls. */
+    previous() {
+      this.enqueueNavigation(() => this.navigate("bkwd"));
+    }
+    /** Jumps directly to a zero-based visible slide index. */
+    goToSlide(index) {
+      this.enqueueNavigation(() => this.jumpToSlide(index));
+    }
+    /** Opens or focuses the desktop presenter popout for this presentation. */
+    async openPresenterView() {
+      if (this.ea.DEVICE.isMobile) {
+        new Notice(this.t("presenterViewDesktopOnly"));
+        return;
+      }
+      if (this.presenter) {
+        await this.presenter.focus();
+        this.presenter.update(this.getPresentationState());
+        return;
+      }
+      const presenter = new PresenterViewController({
+        ea: this.ea,
+        api: this.api,
+        hostView: this.hostView,
+        setup: this.setup,
+        config: this.config,
+        icons: this.icons,
+        t: this.t,
+        callbacks: {
+          previous: () => this.previous(),
+          next: () => this.advance(),
+          first: () => this.goToSlide(0),
+          last: () => this.goToSlide(this.setup.slides.length - 1),
+          finish: () => void this.exit()
+        },
+        ...this.presenterDisplayId === void 0 ? {} : { targetDisplayId: this.presenterDisplayId },
+        getAnimationOriginalOpacities: () => this.animationRuntime?.getOriginalOpacities() ?? /* @__PURE__ */ new Map(),
+        onClosed: () => {
+          if (this.presenter === presenter) this.presenter = null;
+        }
+      });
+      this.presenter = presenter;
+      try {
+        await presenter.open(this.getPresentationState());
+      } catch (error) {
+        if (this.presenter === presenter) this.presenter = null;
+        await presenter.destroy(false).catch(() => void 0);
+        console.error("Slideshow presenter view failed to open", error);
+        new Notice(this.t("presenterViewOpenFailed"));
+      }
+    }
+    /** Returns the authoritative state shared by floating controls and presenter view. */
+    getPresentationState() {
+      let animationState = this.animationRuntime?.getState() ?? { completedSteps: 0, stepCount: 0 };
+      if (this.setup.pathType === "frame" && animationState.stepCount === 0 && this.setup.deck.visibleSlides[this.slide]?.kind === "frame") {
+        const current = this.setup.deck.visibleSlides[this.slide];
+        animationState = { completedSteps: 0, stepCount: current.animationSteps.length };
+      }
+      return buildPresentationState(this.setup.deck, this.slide, animationState);
+    }
+    emitPresentationState() {
+      if (this.stateEmissionPauseDepth > 0) return;
+      this.presenter?.update(this.getPresentationState());
+    }
+    enqueueNavigation(task) {
+      const queued = this.navigationQueue.then(async () => {
+        if (!this.exitPromise) await task();
+      });
+      this.navigationQueue = queued.catch((error) => {
+        console.error("Slideshow navigation failed", error);
+      });
+    }
+    createControls() {
+      this.controls = new PresentationControls({
+        ea: this.ea,
+        ownerWindow: this.ownerWindow,
+        ownerDocument: this.ownerDocument,
+        contentElement: this.contentElement,
+        slidesCount: this.setup.slides.length,
+        pathType: this.setup.pathType,
+        slideTitles: this.setup.slideTitles,
+        shouldOfferPathVisibility: this.setup.shouldHidePathAfterPresentation,
+        isPathHidden: this.setup.isHidden,
+        isFullscreen: this.isFullscreen,
+        fadeLevel: this.config.fadeLevel,
+        transitionDelay: this.config.transitionDelay,
+        printSlideWidth: this.config.printSlideWidth,
+        printSlideHeight: this.config.printSlideHeight,
+        icons: this.icons,
+        t: this.t,
+        callbacks: {
+          previous: () => this.enqueueNavigation(() => this.navigate("bkwd")),
+          next: () => this.enqueueNavigation(() => this.navigate("fwd")),
+          navigateToSlide: (slideNumber) => this.enqueueNavigation(() => this.jumpToSlide(slideNumber - 1)),
+          toggleLaser: () => this.toggleLaser(),
+          refocus: () => this.enqueueNavigation(() => this.jumpToSlide(this.slide)),
+          toggleFullscreen: () => this.enqueueNavigation(() => this.toggleFullscreen()),
+          togglePathVisibility: (hidden) => {
+            this.shouldSaveAfterPresentation = true;
+            if (hidden) {
+              this.api.setToast({
+                message: this.t("pathWillRemainHidden"),
+                duration: 5e3,
+                closable: true
+              });
+            }
+            void this.togglePathVisibility(hidden, true);
+          },
+          editSlide: () => {
+            if (this.setup.shouldHidePathAfterPresentation) void this.togglePathVisibility(false);
+            void this.exit(true);
+          },
+          openSidepanel: () => {
+            void this.exit().then(() => this.openSidepanel());
+          },
+          print: (event) => void this.print(event),
+          finish: () => void this.exit()
+        }
+      });
+      this.controls.create();
+    }
+    toggleLaser() {
+      this.isLaserOn = !this.isLaserOn;
+      this.api.setActiveTool({ type: this.isLaserOn ? "laser" : "selection" });
+      return this.isLaserOn;
+    }
+    async waitForExcalidrawResize() {
+      await sleepInWindow(this.ownerWindow, 100);
+      const deltaWidth = () => Math.abs(this.contentElement.clientWidth - this.api.getAppState().width);
+      const deltaHeight = () => Math.abs(this.contentElement.clientHeight - this.api.getAppState().height);
+      let watchdog = 0;
+      while ((deltaWidth() > 50 || deltaHeight() > 50) && watchdog++ < 20) {
+        await sleepInWindow(this.ownerWindow, 50);
+      }
+    }
+    async prepareHostWindowPlacement(fillWorkArea) {
+      if (this.hostPlacementPrepared || this.presentationDisplayId === void 0) return;
+      this.hostWindowPlacement ??= captureWindowPlacement(this.ownerWindow);
+      moveWindowToDisplay(
+        this.ownerWindow,
+        this.presentationDisplayId,
+        fillWorkArea,
+        false
+      );
+      this.hostPlacementPrepared = true;
+      await waitForWindowOnDisplay(this.ownerWindow, this.presentationDisplayId, 3e3);
+      await sleepInWindow(this.ownerWindow, 350);
+      app.workspace.setActiveLeaf(this.hostLeaf, { focus: true });
+    }
+    async gotoFullscreen(refocus = true) {
+      if (this.isFullscreen) return;
+      this.preventFullscreenExit = true;
+      await this.prepareHostWindowPlacement(true);
+      this.animationRuntime?.pauseTimedStep();
+      if (this.ea.DEVICE.isMobile) this.ea.viewToggleFullScreen();
+      else await this.contentElement.webkitRequestFullscreen();
+      await this.waitForExcalidrawResize();
+      this.hideMobileNavbar();
+      const layerUiWrapper = this.contentElement.querySelector(".layer-ui__wrapper");
+      if (!layerUiWrapper?.hasClass("excalidraw-hidden")) layerUiWrapper?.addClass("excalidraw-hidden");
+      this.controls?.setFullscreen(true);
+      this.controls?.resetPosition(false);
+      this.isFullscreen = true;
+      if (refocus) await this.scrollToSlide(this.slide, 1);
+      this.animationRuntime?.startPendingTimer();
+    }
+    async exitFullscreen(refocus = true, restoreHostPlacement = true) {
+      if (!this.isFullscreen) return;
+      this.preventFullscreenExit = true;
+      this.animationRuntime?.pauseTimedStep();
+      if (!this.ea.DEVICE.isMobile && this.ownerDocument.fullscreenElement) {
+        await this.ownerDocument.exitFullscreen();
+      }
+      if (this.ea.DEVICE.isMobile) this.ea.viewToggleFullScreen();
+      this.controls?.setFullscreen(false);
+      await this.waitForExcalidrawResize();
+      this.controls?.resetPosition(false);
+      this.isFullscreen = false;
+      if (restoreHostPlacement && this.hostWindowPlacement && this.hostPlacementPrepared) {
+        await restoreWindowPlacementStable(this.ownerWindow, this.hostWindowPlacement);
+        this.hostPlacementPrepared = false;
+      }
+      if (refocus) await this.scrollToSlide(this.slide, 1);
+      this.animationRuntime?.startPendingTimer();
+    }
+    async toggleFullscreen() {
+      if (this.isFullscreen) await this.exitFullscreen();
+      else await this.gotoFullscreen();
+    }
+    async togglePathVisibility(setToHidden, isMetadataEdit = false) {
+      await this.presenter?.waitForIdle();
+      const pathElement = this.setup.pathElement;
+      const originalProps = this.setup.originalPathProperties;
+      if (!pathElement || !originalProps) return;
+      this.ea.setView(this.hostView);
+      this.ea.clear();
+      this.ea.copyViewElementsToEAforEditing(
+        this.ea.getViewElements().filter((element2) => element2.id === pathElement.id)
+      );
+      const element = this.ea.getElement(
+        pathElement.id
+      );
+      if (!element) return;
+      element.strokeColor = "transparent";
+      element.backgroundColor = "transparent";
+      const shouldRemainHidden = setToHidden && this.setup.shouldHidePathAfterPresentation;
+      if (shouldRemainHidden) element.locked = true;
+      if (isMetadataEdit) {
+        const metadata = upgradeLineSlideshowData(
+          element.customData,
+          element.id,
+          Math.floor(element.points.length / 2),
+          originalProps
+        );
+        metadata.hidden = shouldRemainHidden;
+        writeSlideshowMetadata(this.ea, element.id, metadata);
+      }
+      this.setup.isHidden = shouldRemainHidden;
+      await this.ea.addElementsToView(
+        false,
+        isMetadataEdit,
+        false,
+        false,
+        isMetadataEdit ? "IMMEDIATELY" : "NEVER"
+      );
+    }
+    getSlideNavigationRect(index) {
+      const targetSlide = this.setup.slides[index];
+      if (!targetSlide) throw new Error(this.t("invalidSlide"));
+      const appState = this.api.getAppState();
+      return getNavigationRect(
+        targetSlide,
+        { width: appState.width, height: appState.height },
+        this.config.maxZoom
+      );
+    }
+    async scrollToSlide(index, steps = this.config.transitionStepCount) {
+      await this.scrollToRect(this.getSlideNavigationRect(index), steps);
+    }
+    async enterSlide(index, fullyBuilt) {
+      const deckSlide = this.setup.deck.visibleSlides[index];
+      if (deckSlide?.kind === "frame" && this.animationRuntime) {
+        await this.animationRuntime.enterSlide(deckSlide, fullyBuilt, false);
+      } else {
+        await this.animationRuntime?.leaveSlide();
+      }
+      await this.scrollToSlide(index);
+      this.animationRuntime?.startPendingTimer();
+    }
+    async scrollToRect(rect, steps = this.config.transitionStepCount) {
+      const startTimer = Date.now();
+      let watchdog = 0;
+      while (this.busy && watchdog++ < 15) await sleepInWindow(this.ownerWindow, 100);
+      if (this.busy && watchdog >= 15) return;
+      this.busy = true;
+      try {
+        this.api.updateScene({ appState: { shouldCacheIgnoreZoom: true } });
+        const { scrollX, scrollY, zoom } = this.api.getAppState();
+        const zoomStep = (zoom.value - rect.nextZoom) / steps;
+        const xStep = (rect.left + scrollX) / steps;
+        const yStep = (rect.top + scrollY) / steps;
+        let index = 1;
+        while (index <= steps) {
+          this.api.updateScene({
+            appState: {
+              scrollX: scrollX - xStep * index,
+              scrollY: scrollY - yStep * index,
+              zoom: { value: zoom.value - zoomStep * index }
+            }
+          });
+          const elapsed = Date.now() - startTimer;
+          if (elapsed > this.config.transitionDelay) index = index < steps ? steps : steps + 1;
+          else {
+            const timeProgress = elapsed / this.config.transitionDelay;
+            index = Math.min(Math.round(steps * timeProgress), steps);
+            await sleepInWindow(this.ownerWindow, this.config.frameSleep);
+          }
+        }
+        this.api.updateScene({ appState: { shouldCacheIgnoreZoom: false } });
+        if (this.isLaserOn) this.api.setActiveTool({ type: "laser" });
+      } finally {
+        this.busy = false;
+      }
+    }
+    async navigate(direction) {
+      if (direction === "fwd") {
+        if (await this.animationRuntime?.advance()) return;
+        if (this.slide >= this.setup.slides.length - 1) {
+          void this.exit();
+          return;
+        }
+        this.stateEmissionPauseDepth += 1;
+        try {
+          await this.animationRuntime?.leaveSlide();
+          this.slide += 1;
+          this.controls?.setSelectedSlide(this.slide + 1);
+          await this.enterSlide(this.slide, false);
+        } finally {
+          this.stateEmissionPauseDepth -= 1;
+        }
+        this.onSlideChange(this.slide);
+        this.emitPresentationState();
+        return;
+      }
+      if (await this.animationRuntime?.reverse()) return;
+      if (this.slide <= 0) {
+        void this.exit();
+        return;
+      }
+      this.stateEmissionPauseDepth += 1;
+      try {
+        await this.animationRuntime?.leaveSlide();
+        this.slide -= 1;
+        this.controls?.setSelectedSlide(this.slide + 1);
+        await this.enterSlide(this.slide, true);
+      } finally {
+        this.stateEmissionPauseDepth -= 1;
+      }
+      this.onSlideChange(this.slide);
+      this.emitPresentationState();
+    }
+    async jumpToSlide(index) {
+      const bounded = Math.min(Math.max(index, 0), this.setup.slides.length - 1);
+      this.stateEmissionPauseDepth += 1;
+      try {
+        await this.animationRuntime?.leaveSlide();
+        this.slide = bounded;
+        this.controls?.setSelectedSlide(this.slide + 1);
+        await this.enterSlide(this.slide, false);
+      } finally {
+        this.stateEmissionPauseDepth -= 1;
+      }
+      this.onSlideChange(this.slide);
+      this.emitPresentationState();
+    }
+    keydownListener = (event) => {
+      if (event.defaultPrevented || event.repeat) return;
+      if (!this.ownerDocument.hasFocus()) return;
+      if (this.hostLeaf !== app.workspace.activeLeaf) return;
+      if (this.hostLeaf.width === 0 && this.hostLeaf.height === 0) return;
+      switch (event.key) {
+        case "Backspace":
+        case "Escape":
+          event.preventDefault();
+          void this.exit();
+          break;
+        case "Space":
+        case "ArrowRight":
+        case "ArrowDown":
+          event.preventDefault();
+          this.enqueueNavigation(() => this.navigate("fwd"));
+          break;
+        case "ArrowLeft":
+        case "ArrowUp":
+          event.preventDefault();
+          this.enqueueNavigation(() => this.navigate("bkwd"));
+          break;
+        case "End":
+          event.preventDefault();
+          this.enqueueNavigation(() => this.jumpToSlide(this.setup.slides.length - 1));
+          break;
+        case "Home":
+          event.preventDefault();
+          this.enqueueNavigation(() => this.jumpToSlide(this.slide));
+          break;
+        case "e":
+          if (this.setup.pathType !== "line") return;
+          event.preventDefault();
+          void (async () => {
+            await this.togglePathVisibility(false);
+            await this.exit(true);
+          })();
+          break;
+        case "f":
+          event.preventDefault();
+          this.enqueueNavigation(() => this.toggleFullscreen());
+          break;
+      }
+    };
+    fullscreenListener = (event) => {
+      if (this.preventFullscreenExit) {
+        this.preventFullscreenExit = false;
+        return;
+      }
+      event.preventDefault();
+      void this.exit();
+    };
+    hideMobileNavbar() {
+      if (!this.ea.DEVICE.isMobile) return;
+      const tracked = new Set(this.hiddenMobileNavbars.map(({ element }) => element));
+      const navbars = Array.from(
+        this.ownerDocument.querySelectorAll(
+          ".mobile-navbar.excalidraw-mobile-navbar-docked"
+        )
+      );
+      for (const element of navbars) {
+        if (!tracked.has(element)) {
+          this.hiddenMobileNavbars.push({ element, display: element.style.display });
+        }
+        element.style.display = "none";
+      }
+    }
+    restoreMobileNavbar() {
+      for (const { element, display } of this.hiddenMobileNavbars) {
+        element.style.display = display;
+      }
+      this.hiddenMobileNavbars = [];
+    }
+    initializeEventListeners() {
+      this.ownerWindow.addEventListener("keydown", this.keydownListener);
+      this.ea.onLinkClickHook = this.linkClickHook;
+      if (!this.ea.DEVICE.isMobile) {
+        this.contentElement.addEventListener("webkitfullscreenchange", this.fullscreenListener);
+        this.contentElement.addEventListener("fullscreenchange", this.fullscreenListener);
+      }
+    }
+    linkClickHook = () => {
+      void this.exit();
+      return true;
+    };
+    removeEventListeners() {
+      if (this.ea.onLinkClickHook === this.linkClickHook) this.ea.onLinkClickHook = null;
+      this.controls?.destroy();
+      this.controls = null;
+      if (!this.ea.DEVICE.isMobile) {
+        this.contentElement.removeEventListener("webkitfullscreenchange", this.fullscreenListener);
+        this.contentElement.removeEventListener("fullscreenchange", this.fullscreenListener);
+      }
+      this.ownerWindow.removeEventListener("keydown", this.keydownListener);
+      this.contentElement.querySelector(".layer-ui__wrapper")?.removeClass("excalidraw-hidden");
+    }
+    /** Restores the drawing and Excalidraw UI after the presentation. */
+    exit(openForEdit = false) {
+      this.exitPromise ??= this.performExit(openForEdit).finally(this.onExit);
+      return this.exitPromise;
+    }
+    async performExit(openForEdit) {
+      this.ea.setView(this.hostView);
+      const presenter = this.presenter;
+      this.presenter = null;
+      await presenter?.destroy(true).catch(() => void 0);
+      await presenter?.waitForIdle().catch(() => void 0);
+      try {
+        await this.animationRuntime?.finishActiveSlide();
+        this.isLaserOn = false;
+        if (this.statusBarElement) this.statusBarElement.style.display = "inherit";
+        if (openForEdit) this.hostView.preventAutozoom();
+        await this.exitFullscreen(false, false);
+        if (this.hostWindowPlacement) {
+          const originalPlacement = this.hostWindowPlacement;
+          this.hostWindowPlacement = null;
+          this.hostPlacementPrepared = false;
+          await restoreWindowPlacementStable(this.ownerWindow, originalPlacement);
+        }
+        await this.waitForExcalidrawResize();
+        this.ea.setViewModeEnabled(false);
+        if (this.setup.pathType === "line" && this.setup.pathElement && this.setup.originalPathProperties) {
+          await this.restoreLinePathForExit(openForEdit);
+        } else if (this.setup.frameRenderingOriginalState.enabled) {
+          this.api.updateScene({
+            appState: {
+              frameRendering: { ...this.setup.frameRenderingOriginalState, enabled: true }
+            }
+          });
+        }
+      } finally {
+        await this.animationRuntime?.finishActiveSlide().catch(() => void 0);
+        this.restoreMobileNavbar();
+        this.removeEventListeners();
+        this.ownerWindow.setTimeout(() => {
+          this.hostView.refreshCanvasOffset();
+          this.api.setActiveTool({ type: "selection" });
+        });
+        if (!this.shouldSaveAfterPresentation) this.hostView.clearDirty();
+      }
+    }
+    async restoreLinePathForExit(openForEdit) {
+      const pathElement = this.setup.pathElement;
+      const originalProps = this.setup.originalPathProperties;
+      if (!pathElement || !originalProps) return;
+      this.ea.clear();
+      this.ea.copyViewElementsToEAforEditing(
+        this.ea.getViewElements().filter((element2) => element2.id === pathElement.id)
+      );
+      const element = this.ea.getElement(
+        pathElement.id
+      );
+      if (!element) return;
+      if (!this.setup.isHidden) {
+        element.strokeColor = originalProps.strokeColor;
+        element.backgroundColor = originalProps.backgroundColor;
+        element.locked = openForEdit ? false : originalProps.locked;
+      }
+      await this.ea.addElementsToView(false, false, false, false, "NEVER");
+      if (!this.setup.isHidden) this.ea.selectElementsInView([element]);
+      if (!openForEdit) return;
+      const deckSlide = this.setup.deck.visibleSlides[this.slide];
+      const pairIndex = deckSlide?.kind === "path" ? deckSlide.pairIndex : this.slide;
+      let nextRect = this.getSlideNavigationRect(this.slide);
+      const offsetWidth = (nextRect.right - nextRect.left) * (1 - this.config.editZoomOut) / 2;
+      const offsetHeight = (nextRect.bottom - nextRect.top) * (1 - this.config.editZoomOut) / 2;
+      nextRect = {
+        left: nextRect.left - offsetWidth,
+        right: nextRect.right + offsetWidth,
+        top: nextRect.top - offsetHeight,
+        bottom: nextRect.bottom + offsetHeight,
+        nextZoom: Math.max(nextRect.nextZoom * this.config.editZoomOut, 0.1)
+      };
+      await this.scrollToRect(nextRect, 1);
+      this.api.startLineEditor(element, [pairIndex * 2, pairIndex * 2 + 1]);
+    }
+    async print(event) {
+      await this.presenter?.waitForIdle();
+      this.ea.setView(this.hostView);
+      const task = () => printSlideshowToPdf({
+        event,
+        ea: this.ea,
+        api: this.api,
+        slides: this.setup.slides,
+        printSlideWidth: this.config.printSlideWidth,
+        printSlideHeight: this.config.printSlideHeight,
+        maxZoom: this.config.maxZoom,
+        t: this.t
+      });
+      if (this.animationRuntime) await this.animationRuntime.withFinalState(task);
+      else await task();
+    }
+  };
+
+  // src/scripts/slideshow/slideDeckMutations.ts
+  function normalizeNotes2(notes) {
+    return notes.trim().length === 0 ? void 0 : notes;
+  }
+  function getFrameElements(ea2) {
+    return ea2.getViewElements().filter(isFrameElement);
+  }
+  function moveId(ids, fromIndex, toIndex) {
+    if (!Number.isInteger(fromIndex) || !Number.isInteger(toIndex) || fromIndex < 0 || toIndex < 0 || fromIndex >= ids.length || toIndex >= ids.length) {
+      throw new RangeError("Frame-slide index is outside the deck.");
+    }
+    const [id] = ids.splice(fromIndex, 1);
+    if (!id) throw new RangeError("The source frame slide does not exist.");
+    ids.splice(toIndex, 0, id);
+  }
+  async function commitWorkbench(ea2) {
+    const committed = await ea2.addElementsToView(false, true, false, false, "IMMEDIATELY");
+    if (!committed) throw new Error("The slideshow metadata could not be applied to the drawing.");
+  }
+  async function writeFrameMetadataSet(ea2, orderedIds, targetId, mutateTarget) {
+    const frames = getFrameElements(ea2);
+    const byId = new Map(frames.map((frame) => [frame.id, frame]));
+    if (orderedIds.length !== frames.length || orderedIds.some((id) => !byId.has(id))) {
+      throw new Error("The frame deck changed before the slideshow metadata could be saved.");
+    }
+    ea2.clear();
+    ea2.copyViewElementsToEAforEditing(frames);
+    orderedIds.forEach((frameId, order) => {
+      const source = byId.get(frameId);
+      if (!source) return;
+      const data = withNormalizedFrameOrder(source.customData, order);
+      if (frameId === targetId) mutateTarget?.(data);
+      writeSlideshowMetadata(ea2, frameId, data);
+    });
+    await commitWorkbench(ea2);
+  }
+  async function declareFrameSlideshow(ea2, selectedFrameId) {
+    const frame = getFrameElements(ea2).find((candidate) => candidate.id === selectedFrameId);
+    if (!frame) throw new Error("The selected frame no longer exists.");
+    ea2.clear();
+    ea2.copyViewElementsToEAforEditing([frame]);
+    const updated = ea2.addAppendUpdateCustomData(selectedFrameId, {
+      slideshow: { schemaVersion: 2, kind: "frame" }
+    });
+    if (!updated) throw new Error("The selected frame could not be edited.");
+    await commitWorkbench(ea2);
+  }
+  async function renameFrameSlide(ea2, frameId, name) {
+    const source = ea2.getViewElements().find((element) => element.id === frameId);
+    if (!isFrameElement(source)) throw new Error("The selected frame no longer exists.");
+    ea2.clear();
+    ea2.copyViewElementsToEAforEditing([source]);
+    const frame = ea2.getElement(frameId);
+    if (!frame) throw new Error("The selected frame could not be edited.");
+    frame.name = name.trim().length === 0 ? null : name;
+    await commitWorkbench(ea2);
+  }
+  async function reorderFrameSlides(ea2, fromIndex, toIndex) {
+    const frames = getFrameElements(ea2);
+    const orderedIds = buildFrameSlideDeck(frames).slides.map((slide) => slide.id);
+    moveId(orderedIds, fromIndex, toIndex);
+    await writeFrameMetadataSet(ea2, orderedIds, null);
+  }
+  async function setFrameExcluded(ea2, frameId, excluded) {
+    const frames = getFrameElements(ea2);
+    const orderedIds = buildFrameSlideDeck(frames).slides.map((slide) => slide.id);
+    await writeFrameMetadataSet(ea2, orderedIds, frameId, (data) => {
+      if (excluded) data.excluded = true;
+      else delete data.excluded;
+    });
+  }
+  async function saveFrameNotes(ea2, frameId, notes) {
+    const frames = getFrameElements(ea2);
+    const orderedIds = buildFrameSlideDeck(frames).slides.map((slide) => slide.id);
+    if (!orderedIds.includes(frameId)) {
+      throw new Error("The selected frame slide no longer exists.");
+    }
+    const normalized = normalizeNotes2(notes);
+    await writeFrameMetadataSet(ea2, orderedIds, frameId, (data) => {
+      if (normalized === void 0) delete data.notes;
+      else data.notes = normalized;
+    });
+  }
+  async function saveFrameAnimationSteps(ea2, frameId, steps) {
+    const frames = getFrameElements(ea2);
+    const orderedIds = buildFrameSlideDeck(frames).slides.map((slide) => slide.id);
+    if (!orderedIds.includes(frameId)) {
+      throw new Error("The selected frame slide no longer exists.");
+    }
+    await writeFrameMetadataSet(ea2, orderedIds, frameId, (data) => {
+      if (steps.length === 0) delete data.animation;
+      else data.animation = { steps: steps.map((step) => structuredClone(step)) };
+    });
+  }
+  function hasBoundLineEndpoint(path) {
+    const bindingPath = path;
+    return bindingPath.startBinding !== null && bindingPath.startBinding !== void 0 || bindingPath.endBinding !== null && bindingPath.endBinding !== void 0;
+  }
+  function fallbackPathProperties(path) {
+    return {
+      strokeColor: path.strokeColor,
+      backgroundColor: path.backgroundColor,
+      locked: path.locked
+    };
+  }
+  async function createLinePresentation(ea2, pathId, name) {
+    const source = ea2.getViewElements().find((element2) => element2.id === pathId);
+    if (!isLinearPathElement(source)) throw new Error("The selected line no longer exists.");
+    if (Math.floor(source.points.length / 2) <= 0) {
+      throw new Error("The selected line does not contain a complete slide point pair.");
+    }
+    ea2.clear();
+    ea2.copyViewElementsToEAforEditing([source]);
+    const element = ea2.getElement(pathId);
+    if (!element) throw new Error("The selected line could not be edited.");
+    const metadata = upgradeLineSlideshowData(
+      element.customData,
+      element.id,
+      Math.floor(element.points.length / 2),
+      fallbackPathProperties(source)
+    );
+    const normalizedName = normalizeNotes2(name ?? "");
+    if (normalizedName === void 0) delete metadata.name;
+    else metadata.name = normalizedName;
+    writeSlideshowMetadata(ea2, element.id, metadata);
+    await commitWorkbench(ea2);
+  }
+  async function renameLinePresentation(ea2, pathId, name) {
+    const source = ea2.getViewElements().find((element2) => element2.id === pathId);
+    if (!isLinearPathElement(source)) throw new Error("The presentation path no longer exists.");
+    ea2.clear();
+    ea2.copyViewElementsToEAforEditing([source]);
+    const element = ea2.getElement(pathId);
+    if (!element) throw new Error("The presentation path could not be edited.");
+    const metadata = upgradeLineSlideshowData(
+      element.customData,
+      element.id,
+      Math.floor(element.points.length / 2),
+      fallbackPathProperties(source)
+    );
+    const normalizedName = normalizeNotes2(name);
+    if (normalizedName === void 0) delete metadata.name;
+    else metadata.name = normalizedName;
+    writeSlideshowMetadata(ea2, element.id, metadata);
+    await commitWorkbench(ea2);
+  }
+  async function removeLinePresentation(ea2, pathId) {
+    const source = ea2.getViewElements().find((element2) => element2.id === pathId);
+    if (!isLinearPathElement(source)) throw new Error("The presentation path no longer exists.");
+    ea2.clear();
+    ea2.copyViewElementsToEAforEditing([source]);
+    const element = ea2.getElement(pathId);
+    if (!element) throw new Error("The presentation path could not be edited.");
+    const existing = upgradeLineSlideshowData(
+      element.customData,
+      element.id,
+      Math.floor(element.points.length / 2),
+      fallbackPathProperties(source)
+    );
+    if (existing.hidden) {
+      element.strokeColor = existing.originalProps.strokeColor;
+      element.backgroundColor = existing.originalProps.backgroundColor;
+      element.locked = existing.originalProps.locked;
+    }
+    writeSlideshowMetadata(ea2, element.id, void 0);
+    await commitWorkbench(ea2);
+  }
+  async function reorderLineSlides(ea2, pathId, fromPairIndex, toPairIndex) {
+    const source = ea2.getViewElements().find((element2) => element2.id === pathId);
+    if (!isLinearPathElement(source)) throw new Error("The presentation path no longer exists.");
+    if (hasBoundLineEndpoint(source)) {
+      throw new Error("BOUND_PRESENTATION_PATH");
+    }
+    ea2.clear();
+    ea2.copyViewElementsToEAforEditing([source]);
+    const element = ea2.getElement(pathId);
+    if (!element) throw new Error("The presentation path could not be edited.");
+    const pairCount = Math.floor(element.points.length / 2);
+    const reordered = reorderLinePointPairs(
+      element.x,
+      element.y,
+      element.points,
+      fromPairIndex,
+      toPairIndex
+    );
+    const metadata = upgradeLineSlideshowData(
+      element.customData,
+      element.id,
+      pairCount,
+      fallbackPathProperties(source)
+    );
+    metadata.slides = reorderLineSlideRecords(
+      metadata.slides,
+      pairCount,
+      element.id,
+      fromPairIndex,
+      toPairIndex
+    );
+    element.x = reordered.x;
+    element.y = reordered.y;
+    element.points = reordered.points;
+    writeSlideshowMetadata(ea2, element.id, metadata);
+    await commitWorkbench(ea2);
+  }
+  async function saveLineNotes(ea2, pathId, slideId, notes) {
+    const source = ea2.getViewElements().find((element2) => element2.id === pathId);
+    if (!isLinearPathElement(source)) throw new Error("The presentation path no longer exists.");
+    ea2.clear();
+    ea2.copyViewElementsToEAforEditing([source]);
+    const element = ea2.getElement(pathId);
+    if (!element) throw new Error("The presentation path could not be edited.");
+    const metadata = upgradeLineSlideshowData(
+      element.customData,
+      element.id,
+      Math.floor(element.points.length / 2),
+      fallbackPathProperties(source)
+    );
+    const record = metadata.slides.find((candidate) => candidate.id === slideId);
+    if (!record) throw new Error("The selected line slide no longer exists.");
+    const normalized = normalizeNotes2(notes);
+    if (normalized === void 0) delete record.notes;
+    else record.notes = normalized;
+    writeSlideshowMetadata(ea2, element.id, metadata);
+    await commitWorkbench(ea2);
+  }
+  async function setLineSlideExcluded(ea2, pathId, slideId, excluded) {
+    const source = ea2.getViewElements().find((element2) => element2.id === pathId);
+    if (!isLinearPathElement(source)) throw new Error("The presentation path no longer exists.");
+    ea2.clear();
+    ea2.copyViewElementsToEAforEditing([source]);
+    const element = ea2.getElement(pathId);
+    if (!element) throw new Error("The presentation path could not be edited.");
+    const metadata = upgradeLineSlideshowData(
+      element.customData,
+      element.id,
+      Math.floor(element.points.length / 2),
+      fallbackPathProperties(source)
+    );
+    const record = metadata.slides.find((candidate) => candidate.id === slideId);
+    if (!record) throw new Error("The selected line slide no longer exists.");
+    if (excluded) record.excluded = true;
+    else delete record.excluded;
+    writeSlideshowMetadata(ea2, element.id, metadata);
+    await commitWorkbench(ea2);
+  }
+  async function setLinePresentationPathHidden(ea2, pathId, hidden) {
+    const source = ea2.getViewElements().find((element2) => element2.id === pathId);
+    if (!isLinearPathElement(source)) throw new Error("The presentation path no longer exists.");
+    ea2.clear();
+    ea2.copyViewElementsToEAforEditing([source]);
+    const element = ea2.getElement(pathId);
+    if (!element) throw new Error("The presentation path could not be edited.");
+    const metadata = upgradeLineSlideshowData(
+      element.customData,
+      element.id,
+      Math.floor(element.points.length / 2),
+      fallbackPathProperties(source)
+    );
+    metadata.hidden = hidden;
+    if (hidden) {
+      element.strokeColor = "transparent";
+      element.backgroundColor = "transparent";
+      element.locked = true;
+    } else {
+      element.strokeColor = metadata.originalProps.strokeColor;
+      element.backgroundColor = metadata.originalProps.backgroundColor;
+      element.locked = metadata.originalProps.locked;
+    }
+    writeSlideshowMetadata(ea2, element.id, metadata);
+    await commitWorkbench(ea2);
+  }
+
+  // src/scripts/slideshow/AnimationEditor.ts
+  function targetKey(target) {
+    return `${target.type}:${target.id}`;
+  }
+  function sameTargets(left, right) {
+    if (left.length !== right.length) return false;
+    return left.every((target, index) => targetKey(target) === targetKey(right[index] ?? target));
+  }
+  function uniqueStepId(steps) {
+    const used = new Set(steps.map((step) => step.id));
+    const base = `animation-${Date.now().toString(36)}`;
+    let id = base;
+    let suffix = 2;
+    while (used.has(id)) {
+      id = `${base}-${suffix}`;
+      suffix += 1;
+    }
+    return id;
+  }
+  function moveStep(steps, fromIndex, toIndex) {
+    if (fromIndex < 0 || toIndex < 0 || fromIndex >= steps.length || toIndex >= steps.length) return;
+    const [step] = steps.splice(fromIndex, 1);
+    if (step) steps.splice(toIndex, 0, step);
+  }
+  var AnimationEditor = class {
+    constructor(options) {
+      this.options = options;
+      this.steps = options.slide.animationSteps.map((step) => structuredClone(step));
+      this.previewRuntime = new AnimationRuntime({
+        ea: options.ea,
+        api: options.api,
+        hostView: options.hostView
+      });
+    }
+    steps;
+    selectedStepId = null;
+    targets = [];
+    ignoredSelectionCount = 0;
+    effect = "appear";
+    trigger = "advance";
+    delayMs = 1e3;
+    durationMs = 350;
+    direction = "left";
+    destroyed = false;
+    saving = false;
+    ignoreSelectionUntil = 0;
+    recycleTimer = 0;
+    pendingRecycleElements = null;
+    previewRuntime;
+    /** Renders the editor into its current sidepanel container. */
+    render() {
+      if (this.destroyed) return;
+      const { container, icons, t } = this.options;
+      const doc = container.ownerDocument;
+      container.replaceChildren();
+      container.className = "slideshow-animation-editor";
+      const instructions = doc.createElement("div");
+      instructions.className = "slideshow-animation-editor__hint";
+      instructions.textContent = t("animationSelectionHint");
+      container.appendChild(instructions);
+      if (this.ignoredSelectionCount > 0) {
+        const warning = doc.createElement("div");
+        warning.className = "slideshow-warning";
+        warning.textContent = t("animationOutsideFrameIgnored", { count: this.ignoredSelectionCount });
+        container.appendChild(warning);
+      }
+      const targetSection = doc.createElement("div");
+      targetSection.className = "slideshow-animation-editor__section";
+      const targetHeading = doc.createElement("div");
+      targetHeading.className = "slideshow-animation-editor__section-title";
+      targetHeading.textContent = t("animationTargets");
+      targetSection.appendChild(targetHeading);
+      const chips = doc.createElement("div");
+      chips.className = "slideshow-animation-editor__targets";
+      if (this.targets.length === 0) {
+        const empty = doc.createElement("span");
+        empty.className = "slideshow-animation-editor__muted";
+        empty.textContent = t("animationNoTargets");
+        chips.appendChild(empty);
+      } else {
+        this.targets.forEach((target, index) => {
+          const chip = doc.createElement("span");
+          chip.className = "slideshow-animation-editor__target";
+          const label = doc.createElement("span");
+          label.textContent = this.getTargetLabel(target);
+          chip.appendChild(label);
+          const remove = this.iconButton(doc, icons.close, t("removeAnimationTarget"), false, () => {
+            this.targets.splice(index, 1);
+            this.render();
+          });
+          chip.appendChild(remove);
+          chips.appendChild(chip);
+        });
+      }
+      targetSection.appendChild(chips);
+      container.appendChild(targetSection);
+      const form = doc.createElement("div");
+      form.className = "slideshow-animation-editor__form";
+      const effectSelect = this.createSelect(doc, t("animationEffect"), [
+        ["appear", t("animationEffectAppear")],
+        ["fade", t("animationEffectFade")],
+        ["slide", t("animationEffectSlide")],
+        ["zoom", t("animationEffectZoom")]
+      ], this.effect, (value) => {
+        this.effect = value;
+        this.render();
+      });
+      form.appendChild(effectSelect);
+      const triggerSelect = this.createSelect(doc, t("animationTrigger"), [
+        ["advance", t("animationTriggerAdvance")],
+        ["after-delay", t("animationTriggerDelay")]
+      ], this.trigger, (value) => {
+        this.trigger = value;
+        this.render();
+      });
+      form.appendChild(triggerSelect);
+      if (this.trigger === "after-delay") {
+        form.appendChild(
+          this.numberField(doc, t("animationDelayMs"), this.delayMs, 0, (value) => {
+            this.delayMs = value;
+          })
+        );
+      }
+      if (this.effect !== "appear") {
+        form.appendChild(
+          this.numberField(doc, t("animationDurationMs"), this.durationMs, 0, (value) => {
+            this.durationMs = value;
+          })
+        );
+      }
+      if (this.effect === "slide") {
+        form.appendChild(
+          this.createSelect(doc, t("animationDirection"), [
+            ["left", t("animationDirectionLeft")],
+            ["right", t("animationDirectionRight")],
+            ["up", t("animationDirectionUp")],
+            ["down", t("animationDirectionDown")]
+          ], this.direction, (value) => {
+            this.direction = value;
+          })
+        );
+      }
+      container.appendChild(form);
+      const formActions = doc.createElement("div");
+      formActions.className = "slideshow-animation-editor__form-actions";
+      const saveLabel = this.selectedStepId ? t("updateAnimationStep") : t("addAnimationStep");
+      const saveButton = doc.createElement("button");
+      saveButton.type = "button";
+      saveButton.disabled = this.saving || this.targets.length === 0;
+      saveButton.innerHTML = `${icons.plus}<span>${saveLabel}</span>`;
+      saveButton.addEventListener("click", () => void this.saveCurrentStep());
+      formActions.appendChild(saveButton);
+      const previewButton = doc.createElement("button");
+      previewButton.type = "button";
+      previewButton.disabled = this.targets.length === 0;
+      previewButton.innerHTML = `${icons.play}<span>${t("previewAnimation")}</span>`;
+      previewButton.addEventListener("click", () => void this.previewCurrentStep());
+      formActions.appendChild(previewButton);
+      if (this.selectedStepId) {
+        const cancelButton = doc.createElement("button");
+        cancelButton.type = "button";
+        cancelButton.textContent = t("newAnimationStep");
+        cancelButton.addEventListener("click", () => {
+          this.selectedStepId = null;
+          this.targets = [];
+          this.resetFormDefaults();
+          this.render();
+        });
+        formActions.appendChild(cancelButton);
+      }
+      container.appendChild(formActions);
+      const stepHeading = doc.createElement("div");
+      stepHeading.className = "slideshow-animation-editor__section-title";
+      stepHeading.textContent = t("animationSequence", { count: this.steps.length });
+      container.appendChild(stepHeading);
+      const stepList = doc.createElement("div");
+      stepList.className = "slideshow-animation-editor__steps";
+      if (this.steps.length === 0) {
+        const empty = doc.createElement("div");
+        empty.className = "slideshow-animation-editor__muted";
+        empty.textContent = t("animationNoSteps");
+        stepList.appendChild(empty);
+      }
+      this.steps.forEach((step, index) => stepList.appendChild(this.renderStep(doc, step, index)));
+      container.appendChild(stepList);
+    }
+    /** Processes live scene changes while animation editing is active. */
+    handleSceneChange(elements, appState) {
+      this.captureSelection(elements, appState);
+      this.scheduleMissingTargetRecycle(elements);
+    }
+    /** Captures the live canvas selection while animation editing is active. */
+    captureSelection(elements, appState) {
+      if (this.destroyed || Date.now() < this.ignoreSelectionUntil) return;
+      const captured = captureAnimationTargets(
+        this.options.slide.frameId,
+        elements,
+        appState.selectedElementIds,
+        appState.selectedGroupIds
+      );
+      if (sameTargets(captured.targets, this.targets) && captured.ignoredSelectionCount === this.ignoredSelectionCount) {
+        return;
+      }
+      this.targets = captured.targets;
+      this.ignoredSelectionCount = captured.ignoredSelectionCount;
+      this.render();
+    }
+    /** Restores preview state and releases editor-owned resources. */
+    async destroy() {
+      if (this.destroyed) return;
+      this.destroyed = true;
+      if (this.recycleTimer) this.options.hostView.ownerWindow.clearTimeout(this.recycleTimer);
+      this.recycleTimer = 0;
+      this.pendingRecycleElements = null;
+      await this.previewRuntime.leaveSlide();
+    }
+    scheduleMissingTargetRecycle(elements) {
+      if (this.destroyed) return;
+      this.pendingRecycleElements = elements;
+      const ownerWindow = this.options.hostView.ownerWindow;
+      if (this.recycleTimer) ownerWindow.clearTimeout(this.recycleTimer);
+      this.recycleTimer = ownerWindow.setTimeout(() => {
+        this.recycleTimer = 0;
+        void this.recycleMissingTargets();
+      }, 160);
+    }
+    async recycleMissingTargets() {
+      if (this.destroyed) return;
+      const elements = this.pendingRecycleElements ?? this.options.ea.getViewElements();
+      this.pendingRecycleElements = null;
+      if (this.saving) {
+        this.scheduleMissingTargetRecycle(elements);
+        return;
+      }
+      const steps = recycleMissingAnimationTargets(this.steps, elements);
+      if (JSON.stringify(steps) === JSON.stringify(this.steps)) return;
+      this.saving = true;
+      try {
+        await saveFrameAnimationSteps(this.options.ea, this.options.slide.frameId, steps);
+        this.steps = steps;
+        if (this.selectedStepId) {
+          const selectedStep = steps.find((step) => step.id === this.selectedStepId);
+          if (selectedStep) {
+            this.targets = selectedStep.targets.map((target) => structuredClone(target));
+          } else {
+            this.selectedStepId = null;
+            this.targets = [];
+            this.resetFormDefaults();
+          }
+        }
+        this.options.onSaved();
+      } catch (error) {
+        console.error("Slideshow stale animation cleanup failed", error);
+        new Notice(this.options.t("animationSaveFailed"));
+      } finally {
+        this.saving = false;
+        this.render();
+      }
+    }
+    renderStep(doc, step, index) {
+      const { icons, t } = this.options;
+      const row = doc.createElement("div");
+      row.className = "slideshow-animation-editor__step";
+      if (step.id === this.selectedStepId) row.classList.add("is-selected");
+      row.tabIndex = 0;
+      row.draggable = this.options.ea.DEVICE.isDesktop;
+      const summary = doc.createElement("button");
+      summary.type = "button";
+      summary.className = "slideshow-animation-editor__step-summary";
+      summary.textContent = t("animationStepSummary", {
+        number: index + 1,
+        effect: this.effectLabel(step.effect),
+        targets: step.targets.length
+      });
+      summary.addEventListener("click", () => this.selectStep(step));
+      row.appendChild(summary);
+      const actions = doc.createElement("div");
+      actions.className = "slideshow-animation-editor__step-actions";
+      actions.appendChild(
+        this.iconButton(doc, icons.chevronUp, t("moveAnimationStepUp"), index === 0, () => {
+          void this.reorderStep(index, index - 1);
+        })
+      );
+      actions.appendChild(
+        this.iconButton(
+          doc,
+          icons.chevronDown,
+          t("moveAnimationStepDown"),
+          index === this.steps.length - 1,
+          () => void this.reorderStep(index, index + 1)
+        )
+      );
+      actions.appendChild(
+        this.iconButton(doc, icons.play, t("previewAnimationStep"), false, () => {
+          void this.previewRuntime.previewStep(this.options.slide.frameId, step);
+        })
+      );
+      actions.appendChild(
+        this.iconButton(doc, icons.trash, t("deleteAnimationStep"), false, () => {
+          void this.deleteStep(step.id);
+        })
+      );
+      row.appendChild(actions);
+      if (this.options.ea.DEVICE.isDesktop) {
+        row.addEventListener("dragstart", (event) => {
+          event.dataTransfer?.setData("text/plain", String(index));
+          if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+        });
+        row.addEventListener("dragover", (event) => {
+          event.preventDefault();
+          if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+        });
+        row.addEventListener("drop", (event) => {
+          event.preventDefault();
+          const fromIndex = Number.parseInt(event.dataTransfer?.getData("text/plain") ?? "", 10);
+          if (Number.isInteger(fromIndex) && fromIndex !== index) void this.reorderStep(fromIndex, index);
+        });
+      }
+      row.addEventListener("keydown", (event) => {
+        if (!event.altKey || event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+        event.preventDefault();
+        const target = event.key === "ArrowUp" ? index - 1 : index + 1;
+        void this.reorderStep(index, target);
+      });
+      return row;
+    }
+    selectStep(step) {
+      this.selectedStepId = step.id;
+      this.targets = step.targets.map((target) => structuredClone(target));
+      this.effect = step.effect;
+      this.trigger = step.trigger;
+      this.delayMs = step.delayMs ?? 1e3;
+      this.durationMs = step.durationMs ?? 350;
+      this.direction = step.direction ?? "left";
+      this.ignoredSelectionCount = 0;
+      const ids = resolveAnimationTargetElementIds(
+        this.options.slide.frameId,
+        step.targets,
+        this.options.ea.getViewElements()
+      );
+      const elements = this.options.ea.getViewElements().filter((element) => ids.includes(element.id));
+      this.ignoreSelectionUntil = Date.now() + 500;
+      if (elements.length > 0) this.options.ea.selectElementsInView(elements);
+      this.render();
+    }
+    async saveCurrentStep() {
+      if (this.saving || this.targets.length === 0) return;
+      this.saving = true;
+      this.render();
+      try {
+        const elements = this.options.ea.getViewElements();
+        const selectedId = this.selectedStepId;
+        let steps = removeAnimationTargetConflicts(
+          this.options.slide.frameId,
+          this.steps,
+          this.targets,
+          elements,
+          selectedId ?? void 0
+        );
+        const step = this.buildFormStep(selectedId ?? uniqueStepId(steps));
+        if (selectedId) {
+          const index = steps.findIndex((candidate) => candidate.id === selectedId);
+          if (index >= 0) steps[index] = step;
+          else steps.push(step);
+        } else {
+          steps.push(step);
+        }
+        await saveFrameAnimationSteps(this.options.ea, this.options.slide.frameId, steps);
+        this.steps = steps;
+        this.selectedStepId = step.id;
+        this.targets = step.targets.map((target) => structuredClone(target));
+        this.options.onSaved();
+      } catch (error) {
+        console.error("Slideshow animation metadata save failed", error);
+        new Notice(this.options.t("animationSaveFailed"));
+      } finally {
+        this.saving = false;
+        this.render();
+      }
+    }
+    async reorderStep(fromIndex, toIndex) {
+      if (toIndex < 0 || toIndex >= this.steps.length || this.saving) return;
+      const steps = this.steps.map((step) => structuredClone(step));
+      moveStep(steps, fromIndex, toIndex);
+      await this.persistSteps(steps);
+    }
+    async deleteStep(stepId) {
+      if (this.saving) return;
+      const steps = this.steps.filter((step) => step.id !== stepId);
+      await this.persistSteps(steps);
+      if (this.selectedStepId === stepId) {
+        this.selectedStepId = null;
+        this.targets = [];
+        this.resetFormDefaults();
+      }
+      this.render();
+    }
+    async persistSteps(steps) {
+      this.saving = true;
+      try {
+        await saveFrameAnimationSteps(this.options.ea, this.options.slide.frameId, steps);
+        this.steps = steps;
+        this.options.onSaved();
+      } catch (error) {
+        console.error("Slideshow animation sequence save failed", error);
+        new Notice(this.options.t("animationSaveFailed"));
+      } finally {
+        this.saving = false;
+        this.render();
+      }
+    }
+    async previewCurrentStep() {
+      if (this.targets.length === 0) return;
+      await this.previewRuntime.previewStep(
+        this.options.slide.frameId,
+        this.buildFormStep(this.selectedStepId ?? "preview")
+      );
+    }
+    buildFormStep(id) {
+      const step = {
+        id,
+        targets: this.targets.map((target) => structuredClone(target)),
+        effect: this.effect,
+        trigger: this.trigger
+      };
+      if (this.trigger === "after-delay") step.delayMs = this.delayMs;
+      if (this.effect !== "appear") step.durationMs = this.durationMs;
+      if (this.effect === "slide") step.direction = this.direction;
+      return step;
+    }
+    resetFormDefaults() {
+      this.effect = "appear";
+      this.trigger = "advance";
+      this.delayMs = 1e3;
+      this.durationMs = 350;
+      this.direction = "left";
+    }
+    getTargetLabel(target) {
+      if (target.type === "group") {
+        return this.options.t("animationGroupTarget", { id: target.id.slice(0, 8) });
+      }
+      const element = this.options.ea.getViewElements().find((candidate) => candidate.id === target.id);
+      return this.options.t("animationElementTarget", {
+        type: element?.type ?? "?",
+        id: target.id.slice(0, 8)
+      });
+    }
+    effectLabel(effect) {
+      const { t } = this.options;
+      switch (effect) {
+        case "fade":
+          return t("animationEffectFade");
+        case "slide":
+          return t("animationEffectSlide");
+        case "zoom":
+          return t("animationEffectZoom");
+        default:
+          return t("animationEffectAppear");
+      }
+    }
+    iconButton(doc, icon, label, disabled, callback) {
+      const button = doc.createElement("button");
+      button.type = "button";
+      button.innerHTML = icon;
+      button.disabled = disabled;
+      button.setAttribute("aria-label", label);
+      button.addEventListener("click", callback);
+      return button;
+    }
+    createSelect(doc, labelText, options, value, onChange) {
+      const label = doc.createElement("label");
+      const text = doc.createElement("span");
+      text.textContent = labelText;
+      label.appendChild(text);
+      const select = doc.createElement("select");
+      for (const [optionValue, optionLabel] of options) {
+        const option = doc.createElement("option");
+        option.value = optionValue;
+        option.textContent = optionLabel;
+        select.appendChild(option);
+      }
+      select.value = value;
+      select.addEventListener("change", () => onChange(select.value));
+      label.appendChild(select);
+      return label;
+    }
+    numberField(doc, labelText, value, min, onChange) {
+      const label = doc.createElement("label");
+      const text = doc.createElement("span");
+      text.textContent = labelText;
+      label.appendChild(text);
+      const input = doc.createElement("input");
+      input.type = "number";
+      input.min = String(min);
+      input.step = "50";
+      input.value = String(value);
+      input.addEventListener("change", () => {
+        const parsed = Number(input.value);
+        onChange(Number.isFinite(parsed) ? Math.max(min, parsed) : value);
+      });
+      label.appendChild(input);
+      return label;
+    }
+  };
+
+  // src/scripts/slideshow/SlideSorter.ts
+  function getDropInsertionIndexFromRects(rowRects, pointerX, pointerY) {
+    if (rowRects.length === 0) return 0;
+    const groups = [];
+    rowRects.forEach((rect, index) => {
+      const group = groups.find((candidate) => {
+        const first = candidate[0]?.rect;
+        return Boolean(first && Math.abs(first.top - rect.top) <= 8);
+      });
+      if (group) group.push({ rect, index });
+      else groups.push([{ rect, index }]);
+    });
+    const targetGroup = groups.find((group) => {
+      const top = Math.min(...group.map((entry) => entry.rect.top));
+      const bottom = Math.max(...group.map((entry) => entry.rect.bottom));
+      return pointerY < (top + bottom) / 2;
+    });
+    if (!targetGroup) return rowRects.length;
+    const ordered = [...targetGroup].sort((a, b) => a.rect.left - b.rect.left);
+    const target = ordered.find((entry) => pointerX < (entry.rect.left + entry.rect.right) / 2);
+    return target?.index ?? (ordered[ordered.length - 1]?.index ?? -1) + 1;
+  }
+  function getDropMoveTarget(fromIndex, insertionIndex, slideCount) {
+    if (fromIndex < 0 || fromIndex >= slideCount || insertionIndex < 0 || insertionIndex > slideCount) {
+      return null;
+    }
+    const target = insertionIndex > fromIndex ? insertionIndex - 1 : insertionIndex;
+    return target === fromIndex ? null : target;
+  }
+  function getDragAutoScrollVelocity(pointerY, containerTop, containerBottom, edgeSize = 72, maximumSpeed = 18) {
+    const availableHeight = Math.max(containerBottom - containerTop, 0);
+    const edge = Math.min(edgeSize, availableHeight / 2);
+    if (edge <= 0) return 0;
+    if (pointerY < containerTop + edge) {
+      const strength = Math.min(Math.max((containerTop + edge - pointerY) / edge, 0), 1);
+      return -maximumSpeed * strength;
+    }
+    if (pointerY > containerBottom - edge) {
+      const strength = Math.min(Math.max((pointerY - (containerBottom - edge)) / edge, 0), 1);
+      return maximumSpeed * strength;
+    }
+    return 0;
+  }
+  var SlideSorter = class {
+    constructor(options) {
+      this.options = options;
+      this.ownerWindow = options.container.ownerDocument.defaultView ?? window;
+      this.selectedSlideId = options.deck.slides[0]?.id ?? null;
+      options.container.addEventListener?.("dragover", this.handleContainerDragOver);
+      options.container.addEventListener?.("dragleave", this.handleContainerDragLeave);
+      options.container.addEventListener?.("drop", this.handleContainerDrop);
+    }
+    selectedSlideId = null;
+    expandedNotesSlideId = null;
+    notesTextarea = null;
+    notesTimer = 0;
+    ownerWindow;
+    renderGeneration = 0;
+    draggedIndex = null;
+    dropTargetIndex = null;
+    dragPointerX = null;
+    dragPointerY = null;
+    autoScrollVelocity = 0;
+    autoScrollFrame = 0;
+    notesSaveInFlight = null;
+    previewObserver = null;
+    /** Rebinds timer behavior after the sidepanel DOM migrates between windows. */
+    onWindowMigrated(ownerWindow) {
+      if (this.notesTimer) {
+        this.ownerWindow.clearTimeout(this.notesTimer);
+        this.notesTimer = 0;
+        this.scheduleNotesSave();
+      }
+      this.stopAutoScroll();
+      this.previewObserver?.disconnect();
+      this.previewObserver = null;
+      this.ownerWindow = ownerWindow;
+      this.render();
+    }
+    /** Returns the currently selected stable slide id. */
+    getSelectedSlideId() {
+      return this.selectedSlideId;
+    }
+    /** Returns the slide whose inline notes editor is expanded, if any. */
+    getExpandedNotesSlideId() {
+      return this.expandedNotesSlideId;
+    }
+    /** Returns the current vertical sorter position for preservation across deck refreshes. */
+    getScrollTop() {
+      return this.options.container.scrollTop ?? 0;
+    }
+    /** Restores a vertical sorter position after its rows have been rebuilt. */
+    restoreScrollTop(scrollTop) {
+      this.options.container.scrollTop = scrollTop;
+    }
+    /** Scrolls the requested slide row into the visible sorter viewport. */
+    scrollToSlide(slideId, focus = true, block = "center") {
+      const row = Array.from(
+        this.options.container.querySelectorAll(".slideshow-sorter__row")
+      ).find((candidate) => candidate.dataset.slideId === slideId);
+      if (!row) return;
+      if (focus) row.focus({ preventScroll: true });
+      row.scrollIntoView({ block });
+      this.ownerWindow.setTimeout(() => {
+        if (row.isConnected) row.scrollIntoView({ block });
+      }, 50);
+    }
+    /** Returns whether notes currently have keyboard focus. */
+    isEditingNotes() {
+      return this.notesTextarea?.ownerDocument.activeElement === this.notesTextarea;
+    }
+    /** Mirrors an unambiguous canvas selection without taking keyboard focus from the drawing. */
+    async selectFromScene(slideId) {
+      if (this.options.animationEditingSlideId || this.isEditingNotes()) return;
+      if (!this.options.deck.slides.some((slide) => slide.id === slideId)) return;
+      if (slideId !== this.selectedSlideId) {
+        await this.flushNotes();
+        this.selectedSlideId = slideId;
+        this.expandedNotesSlideId = null;
+        this.render(slideId);
+      }
+      this.scrollToSlide(slideId, false);
+    }
+    /** Selects prior stable ids when still present, then renders the sorter. */
+    render(preferredSlideId = this.selectedSlideId, preferredNotesSlideId = this.expandedNotesSlideId) {
+      this.renderGeneration += 1;
+      const generation = this.renderGeneration;
+      const { container, deck } = this.options;
+      const scrollTop = container.scrollTop;
+      this.previewObserver?.disconnect();
+      this.previewObserver = this.createPreviewObserver(generation);
+      container.replaceChildren();
+      this.notesTextarea = null;
+      if (deck.slides.length === 0) return;
+      this.selectedSlideId = preferredSlideId && deck.slides.some((slide) => slide.id === preferredSlideId) ? preferredSlideId : deck.slides[0]?.id ?? null;
+      this.expandedNotesSlideId = preferredNotesSlideId && preferredNotesSlideId === this.selectedSlideId && deck.slides.some((slide) => slide.id === preferredNotesSlideId) ? preferredNotesSlideId : null;
+      container.classList.toggle(
+        "has-expanded-editor",
+        Boolean(this.expandedNotesSlideId || this.options.animationEditingSlideId)
+      );
+      deck.slides.forEach((slide, index) => {
+        const row = this.createRow(slide, index);
+        container.appendChild(row);
+        const previewHost = row.querySelector(".slideshow-sorter__preview");
+        if (previewHost) {
+          previewHost.dataset.slideId = slide.id;
+          if (this.previewObserver) this.previewObserver.observe(previewHost);
+          else this.renderPreview(previewHost, slide, generation);
+        }
+      });
+      container.scrollTop = scrollTop;
+    }
+    createPreviewObserver(generation) {
+      const Observer = this.ownerWindow.IntersectionObserver;
+      if (typeof Observer !== "function") return null;
+      return new Observer(
+        (entries, observer) => {
+          for (const entry of entries) {
+            if (!entry.isIntersecting) continue;
+            observer.unobserve(entry.target);
+            const host = entry.target;
+            const slide = this.options.deck.slides.find(
+              (candidate) => candidate.id === host.dataset.slideId
+            );
+            if (slide) this.renderPreview(host, slide, generation);
+          }
+        },
+        { root: this.options.container, rootMargin: "240px 0px" }
+      );
+    }
+    renderPreview(previewHost, slide, generation) {
+      void this.options.previewService.createPreview(slide, previewHost.ownerDocument, { targetWidth: 480 }).then((preview) => {
+        if (!preview || generation !== this.renderGeneration || !previewHost.isConnected) return;
+        previewHost.replaceChildren(preview);
+      }).catch(() => void 0);
+    }
+    createIconButton(ownerDocument, icon, label, disabled, onClick) {
+      const button = ownerDocument.createElement("button");
+      button.type = "button";
+      button.innerHTML = icon;
+      button.setAttribute("aria-label", label);
+      button.disabled = disabled;
+      button.addEventListener("click", (event) => {
+        event.stopPropagation();
+        onClick();
+      });
+      return button;
+    }
+    createRow(slide, index) {
+      const { deck, icons, t, reorderEnabled, ea: ea2 } = this.options;
+      const doc = this.options.container.ownerDocument;
+      const row = doc.createElement("div");
+      row.className = "slideshow-sorter__row";
+      if (slide.id === this.selectedSlideId) row.classList.add("is-selected");
+      if (slide.excluded) row.classList.add("is-excluded");
+      row.tabIndex = 0;
+      row.dataset.slideId = slide.id;
+      row.setAttribute("role", "listitem");
+      row.addEventListener("click", () => void this.selectSlide(slide.id));
+      row.addEventListener("dblclick", () => this.options.callbacks.zoomToSlide(slide));
+      row.addEventListener("keydown", (event) => this.handleRowKeydown(event, slide, index));
+      const top = doc.createElement("div");
+      top.className = "slideshow-sorter__top";
+      const titleRow = doc.createElement("div");
+      titleRow.className = "slideshow-sorter__title-row";
+      const title = doc.createElement("div");
+      title.className = "slideshow-sorter__title";
+      const titleText = t("slideNumberAndTitle", { number: index + 1, title: slide.title });
+      title.textContent = titleText;
+      title.title = titleText;
+      titleRow.appendChild(title);
+      if (slide.kind === "frame") {
+        const editTitleButton = this.createIconButton(
+          doc,
+          icons.edit,
+          t("editFrameSlideName"),
+          false,
+          () => this.options.callbacks.editFrameSlideName?.(slide)
+        );
+        editTitleButton.className = "slideshow-sorter__title-edit";
+        editTitleButton.draggable = false;
+        editTitleButton.addEventListener("dragstart", (event) => event.preventDefault());
+        titleRow.appendChild(editTitleButton);
+      }
+      top.appendChild(titleRow);
+      const badges = doc.createElement("div");
+      badges.className = "slideshow-sorter__badges";
+      if (slide.notes) {
+        const badge = doc.createElement("span");
+        const label = t("notesPresent");
+        badge.className = "slideshow-sorter__badge slideshow-sorter__badge--notes";
+        badge.title = label;
+        badge.setAttribute("aria-label", label);
+        badge.innerHTML = `${icons.notebookPen}<span class="slideshow-sorter__badge-text">${label}</span>`;
+        badges.appendChild(badge);
+      }
+      if (slide.kind === "frame" && slide.animationSteps.length > 0) {
+        const badge = doc.createElement("span");
+        const count = slide.animationSteps.length;
+        const label = t("animationCount", { count });
+        badge.className = "slideshow-sorter__badge slideshow-sorter__badge--animation";
+        badge.title = label;
+        badge.setAttribute("aria-label", label);
+        badge.innerHTML = `${icons.sparkles}<span class="slideshow-sorter__badge-compact-count" aria-hidden="true">${count}</span><span class="slideshow-sorter__badge-text">${label}</span>`;
+        badges.appendChild(badge);
+      }
+      top.appendChild(badges);
+      row.appendChild(top);
+      if (ea2.DEVICE.isDesktop && reorderEnabled) {
+        top.draggable = true;
+        top.classList.add("is-draggable");
+        top.setAttribute("aria-label", t("dragSlide"));
+        top.addEventListener("dragstart", (event) => {
+          this.selectedSlideId = slide.id;
+          this.options.container.querySelectorAll(".slideshow-sorter__row.is-selected").forEach((selectedRow) => selectedRow.classList.remove("is-selected"));
+          row.classList.add("is-selected");
+          this.draggedIndex = index;
+          row.classList.add("is-dragging");
+          event.dataTransfer?.setData("text/plain", String(index));
+          if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+        });
+        top.addEventListener("dragend", () => {
+          this.finishDrag();
+        });
+      }
+      const content = doc.createElement("div");
+      content.className = "slideshow-sorter__content";
+      row.appendChild(content);
+      const preview = doc.createElement("div");
+      preview.className = "slideshow-sorter__preview";
+      preview.style.backgroundColor = this.options.previewService.getBackgroundColor();
+      preview.style.aspectRatio = this.options.previewService.getAspectRatio();
+      content.appendChild(preview);
+      const actions = doc.createElement("div");
+      actions.className = "slideshow-sorter__actions";
+      actions.appendChild(
+        this.createIconButton(
+          doc,
+          icons.chevronUp,
+          t("moveSlideUp"),
+          !reorderEnabled || index === 0,
+          () => {
+            void this.options.callbacks.move(index, index - 1);
+          }
+        )
+      );
+      actions.appendChild(
+        this.createIconButton(
+          doc,
+          icons.chevronDown,
+          t("moveSlideDown"),
+          !reorderEnabled || index === deck.slides.length - 1,
+          () => {
+            void this.options.callbacks.move(index, index + 1);
+          }
+        )
+      );
+      actions.appendChild(
+        this.createIconButton(
+          doc,
+          slide.excluded ? icons.eyeOff : icons.eye,
+          slide.excluded ? t("includeSlide") : t("excludeSlide"),
+          false,
+          () => void this.options.callbacks.toggleInclusion(slide, !slide.excluded)
+        )
+      );
+      if (slide.kind === "frame") {
+        const animationExpanded = this.options.animationEditingSlideId === slide.id;
+        const animationButton = this.createIconButton(
+          doc,
+          icons.sparkles,
+          t("editAnimations"),
+          false,
+          () => this.options.callbacks.requestAnimationEditor(slide)
+        );
+        animationButton.classList.toggle("is-active", animationExpanded);
+        animationButton.setAttribute("aria-expanded", String(animationExpanded));
+        actions.appendChild(animationButton);
+      } else {
+        actions.appendChild(
+          this.createIconButton(doc, icons.edit, t("editLineSlide"), false, () => {
+            void this.options.callbacks.editLineSlide(slide, index);
+          })
+        );
+      }
+      const notesExpanded = this.expandedNotesSlideId === slide.id;
+      const notesButton = this.createIconButton(
+        doc,
+        icons.notebookPen,
+        notesExpanded ? t("hidePresenterNotes") : t("showPresenterNotes"),
+        false,
+        () => void this.toggleNotes(slide.id)
+      );
+      notesButton.classList.toggle("is-active", notesExpanded);
+      notesButton.setAttribute("aria-expanded", String(notesExpanded));
+      actions.appendChild(notesButton);
+      content.appendChild(actions);
+      if (notesExpanded) this.renderNotesEditor(slide, row);
+      if (slide.kind === "frame" && this.options.animationEditingSlideId === slide.id) {
+        const animationHost = doc.createElement("div");
+        animationHost.className = "slideshow-sorter__animation";
+        row.appendChild(animationHost);
+        this.options.callbacks.mountAnimationEditor?.(slide, animationHost);
+      }
+      return row;
+    }
+    handleRowKeydown(event, slide, index) {
+      const rows = Array.from(
+        this.options.container.querySelectorAll(".slideshow-sorter__row")
+      );
+      if (event.altKey && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+        event.preventDefault();
+        if (!this.options.reorderEnabled) return;
+        const target = event.key === "ArrowUp" ? index - 1 : index + 1;
+        if (target >= 0 && target < this.options.deck.slides.length) {
+          void this.options.callbacks.move(index, target);
+        }
+        return;
+      }
+      switch (event.key) {
+        case "ArrowUp":
+        case "ArrowDown": {
+          event.preventDefault();
+          const target = event.key === "ArrowUp" ? index - 1 : index + 1;
+          rows[target]?.focus();
+          break;
+        }
+        case "Enter":
+          event.preventDefault();
+          this.options.callbacks.zoomToSlide(slide);
+          break;
+        case " ":
+        case "Spacebar":
+          event.preventDefault();
+          void this.options.callbacks.toggleInclusion(slide, !slide.excluded);
+          break;
+        case "n":
+        case "N":
+          event.preventDefault();
+          void this.openNotes(slide.id, true);
+          break;
+        case "a":
+        case "A":
+          event.preventDefault();
+          this.options.callbacks.requestAnimationEditor(slide);
+          break;
+      }
+    }
+    async selectSlide(slideId) {
+      if (slideId === this.selectedSlideId) return;
+      await this.flushNotes();
+      this.selectedSlideId = slideId;
+      this.expandedNotesSlideId = null;
+      this.render(slideId);
+    }
+    async toggleNotes(slideId) {
+      if (this.expandedNotesSlideId === slideId) {
+        await this.flushNotes();
+        this.expandedNotesSlideId = null;
+        this.render(this.selectedSlideId);
+        return;
+      }
+      await this.openNotes(slideId, false);
+    }
+    async openNotes(slideId, focusNotes) {
+      await this.flushNotes();
+      this.selectedSlideId = slideId;
+      this.expandedNotesSlideId = slideId;
+      this.render(slideId, slideId);
+      this.scrollToSlide(slideId, false, "start");
+      if (focusNotes) this.notesTextarea?.focus();
+    }
+    renderNotesEditor(slide, row) {
+      const doc = this.options.container.ownerDocument;
+      const notes = doc.createElement("div");
+      notes.className = "slideshow-notes";
+      notes.addEventListener("click", (event) => event.stopPropagation());
+      const heading = doc.createElement("strong");
+      heading.textContent = this.options.t("notesHeading");
+      notes.appendChild(heading);
+      const textarea = doc.createElement("textarea");
+      textarea.placeholder = this.options.t("notesPlaceholder");
+      textarea.value = slide.notes ?? "";
+      textarea.addEventListener("click", (event) => event.stopPropagation());
+      textarea.addEventListener("keydown", (event) => this.handleNotesKeydown(event));
+      textarea.addEventListener("input", () => this.scheduleNotesSave());
+      textarea.addEventListener("blur", () => {
+        void this.flushNotes().finally(() => this.options.callbacks.notesBlurred());
+      });
+      notes.appendChild(textarea);
+      const hint = doc.createElement("div");
+      hint.className = "slideshow-notes__hint";
+      hint.textContent = this.options.t("notesHint");
+      notes.appendChild(hint);
+      row.appendChild(notes);
+      this.notesTextarea = textarea;
+    }
+    handleNotesKeydown(event) {
+      event.stopPropagation();
+      if (!event.defaultPrevented || event.key.length !== 1 || event.metaKey || event.ctrlKey || event.altKey) {
+        return;
+      }
+      const textarea = event.currentTarget;
+      if (!textarea) return;
+      const start = textarea.selectionStart ?? textarea.value.length;
+      const end = textarea.selectionEnd ?? start;
+      textarea.setRangeText(event.key, start, end, "end");
+      this.scheduleNotesSave();
+    }
+    handleContainerDragOver = (event) => {
+      if (this.draggedIndex === null) return;
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+      this.dragPointerX = event.clientX;
+      this.dragPointerY = event.clientY;
+      this.updateDropTarget(event.clientX, event.clientY);
+      this.updateAutoScroll(event.clientY);
+    };
+    handleContainerDragLeave = (event) => {
+      const relatedTarget = event.relatedTarget;
+      if (relatedTarget && this.options.container.contains(relatedTarget)) return;
+      this.clearDropIndicator();
+      this.stopAutoScroll();
+    };
+    handleContainerDrop = (event) => {
+      if (this.draggedIndex === null) return;
+      event.preventDefault();
+      const fromIndex = this.draggedIndex;
+      const insertionIndex = this.dropTargetIndex;
+      this.finishDrag();
+      if (insertionIndex === null) return;
+      const target = getDropMoveTarget(fromIndex, insertionIndex, this.options.deck.slides.length);
+      if (target !== null) void this.options.callbacks.move(fromIndex, target);
+    };
+    updateDropTarget(pointerX, pointerY) {
+      const rows = Array.from(
+        this.options.container.querySelectorAll(".slideshow-sorter__row")
+      );
+      const insertionIndex = getDropInsertionIndexFromRects(
+        rows.map((row) => row.getBoundingClientRect()),
+        pointerX,
+        pointerY
+      );
+      if (insertionIndex === this.dropTargetIndex) return;
+      this.clearDropIndicator();
+      this.dropTargetIndex = insertionIndex;
+      if (insertionIndex < rows.length) rows[insertionIndex]?.classList.add("is-drop-before");
+      else rows[rows.length - 1]?.classList.add("is-drop-after");
+    }
+    clearDropIndicator() {
+      const rows = this.options.container.querySelectorAll?.(".is-drop-before, .is-drop-after") ?? [];
+      rows.forEach((row) => row.classList.remove("is-drop-before", "is-drop-after"));
+      this.dropTargetIndex = null;
+    }
+    updateAutoScroll(pointerY) {
+      const rect = this.options.container.getBoundingClientRect();
+      this.autoScrollVelocity = getDragAutoScrollVelocity(pointerY, rect.top, rect.bottom);
+      if (this.autoScrollVelocity === 0) {
+        this.stopAutoScroll();
+        return;
+      }
+      if (!this.autoScrollFrame) {
+        this.autoScrollFrame = this.ownerWindow.requestAnimationFrame(this.runAutoScroll);
+      }
+    }
+    runAutoScroll = () => {
+      this.autoScrollFrame = 0;
+      if (this.draggedIndex === null || this.autoScrollVelocity === 0) return;
+      const previousScrollTop = this.options.container.scrollTop;
+      this.options.container.scrollTop += this.autoScrollVelocity;
+      if (this.options.container.scrollTop === previousScrollTop) {
+        this.autoScrollVelocity = 0;
+        return;
+      }
+      if (this.dragPointerX !== null && this.dragPointerY !== null) {
+        this.updateDropTarget(this.dragPointerX, this.dragPointerY);
+      }
+      this.autoScrollFrame = this.ownerWindow.requestAnimationFrame(this.runAutoScroll);
+    };
+    stopAutoScroll() {
+      if (this.autoScrollFrame) this.ownerWindow.cancelAnimationFrame(this.autoScrollFrame);
+      this.autoScrollFrame = 0;
+      this.autoScrollVelocity = 0;
+    }
+    finishDrag() {
+      this.stopAutoScroll();
+      this.clearDropIndicator();
+      const rows = this.options.container.querySelectorAll?.(
+        ".slideshow-sorter__row.is-dragging"
+      ) ?? [];
+      rows.forEach((row) => row.classList.remove("is-dragging"));
+      this.draggedIndex = null;
+      this.dragPointerX = null;
+      this.dragPointerY = null;
+    }
+    scheduleNotesSave() {
+      if (!this.notesTextarea || !this.expandedNotesSlideId) return;
+      if (this.notesTimer) this.ownerWindow.clearTimeout(this.notesTimer);
+      this.notesTimer = this.ownerWindow.setTimeout(() => {
+        this.notesTimer = 0;
+        void this.flushNotes();
+      }, 500);
+    }
+    /** Flushes a pending notes edit before slide changes, panel close, or presentation start. */
+    async flushNotes() {
+      if (this.notesTimer) {
+        this.ownerWindow.clearTimeout(this.notesTimer);
+        this.notesTimer = 0;
+      }
+      const slideId = this.expandedNotesSlideId;
+      const current = this.notesTextarea?.value;
+      if (!slideId || current === void 0) return;
+      const previousSave = this.notesSaveInFlight;
+      const save = (async () => {
+        await previousSave?.catch(() => void 0);
+        const slide = this.options.deck.slides.find((candidate) => candidate.id === slideId);
+        if (!slide || current === (slide.notes ?? "")) return;
+        await this.options.callbacks.saveNotes(slide, current);
+        if (current.trim().length === 0) delete slide.notes;
+        else slide.notes = current;
+      })();
+      this.notesSaveInFlight = save;
+      try {
+        await save;
+      } finally {
+        if (this.notesSaveInFlight === save) this.notesSaveInFlight = null;
+      }
+    }
+    /** Cancels timers and invalidates asynchronous preview insertions. */
+    destroy() {
+      this.renderGeneration += 1;
+      this.previewObserver?.disconnect();
+      this.previewObserver = null;
+      if (this.notesTimer) this.ownerWindow.clearTimeout(this.notesTimer);
+      this.notesTimer = 0;
+      this.notesTextarea = null;
+      this.finishDrag();
+      this.options.container.removeEventListener?.("dragover", this.handleContainerDragOver);
+      this.options.container.removeEventListener?.("dragleave", this.handleContainerDragLeave);
+      this.options.container.removeEventListener?.("drop", this.handleContainerDrop);
+    }
+  };
+
+  // src/scripts/slideshow/slideshowQuickGuide.ts
+  function openSlideshowQuickGuideModal(ea2, t) {
+    const modal = new ea2.obsidian.Modal(app);
+    modal.titleEl.setText(t("quickGuideTitle"));
+    modal.contentEl.createEl("h3", { text: t("quickGuideShortcutsTitle") });
+    const shortcuts = modal.contentEl.createEl("ul");
+    for (const key of [
+      "quickGuideClick",
+      "quickGuideWindowed",
+      "quickGuideEditor",
+      "quickGuideResumeFullscreen",
+      "quickGuideResumeWindowed"
+    ]) {
+      shortcuts.createEl("li", { text: t(key) });
+    }
+    modal.contentEl.createEl("h3", { text: t("quickGuideAuthoringTitle") });
+    for (const key of [
+      "quickGuideFrameSlides",
+      "quickGuideLineSlides",
+      "quickGuideMarkerFrames",
+      "quickGuideAnimations",
+      "quickGuideNotes"
+    ]) {
+      modal.contentEl.createEl("p", { text: t(key) });
+    }
+    modal.open();
+  }
+
+  // src/scripts/slideshow/slideshowRuntime.ts
+  var RUNTIME_PROPERTY = "__excalidrawAutomateSlideshowRuntimeV1";
+  function getSlideshowRuntime() {
+    const host = app;
+    host[RUNTIME_PROPERTY] ??= {
+      contexts: /* @__PURE__ */ new WeakMap(),
+      progress: /* @__PURE__ */ new WeakMap(),
+      progressType: /* @__PURE__ */ new WeakMap(),
+      progressSource: /* @__PURE__ */ new WeakMap(),
+      presentations: /* @__PURE__ */ new WeakMap(),
+      sidepanel: null
+    };
+    const runtime = host[RUNTIME_PROPERTY];
+    if (!("progressType" in runtime) || !runtime.progressType) {
+      Object.assign(runtime, {
+        progressType: /* @__PURE__ */ new WeakMap()
+      });
+    }
+    if (!("progressSource" in runtime) || !runtime.progressSource) {
+      Object.assign(runtime, {
+        progressSource: /* @__PURE__ */ new WeakMap()
+      });
+    }
+    return runtime;
+  }
+  function registerSlideshowViewContext(context) {
+    const runtime = getSlideshowRuntime();
+    const wasKnown = runtime.contexts.has(context.view);
+    runtime.contexts.set(context.view, context);
+    return wasKnown;
+  }
+  function getSlideshowViewContext(view) {
+    return getSlideshowRuntime().contexts.get(view);
+  }
+  function setSlideshowProgress(view, slide, presentationSource) {
+    const runtime = getSlideshowRuntime();
+    runtime.progress.set(view, slide);
+    if (presentationSource) {
+      const type = presentationSource === "frame" ? "frame" : "line";
+      runtime.progressType.set(view, type);
+      if (presentationSource === "frame" || presentationSource.startsWith("line:")) {
+        runtime.progressSource.set(view, presentationSource);
+      }
+    }
+  }
+  function getSlideshowProgress(view) {
+    return getSlideshowRuntime().progress.get(view);
+  }
+  function getSlideshowProgressType(view) {
+    return getSlideshowRuntime().progressType.get(view);
+  }
+  function getSlideshowProgressSource(view) {
+    return getSlideshowRuntime().progressSource.get(view);
+  }
+
+  // src/scripts/slideshow/SlideshowSidepanel.ts
+  function getDeckFingerprint(resolved) {
+    if (!resolved) return "none";
+    return JSON.stringify({
+      kind: resolved.deck.kind,
+      pathId: resolved.pathElement?.id ?? null,
+      slides: resolved.deck.slides.map((slide) => ({
+        id: slide.id,
+        title: slide.title,
+        rect: slide.rect,
+        notes: slide.notes ?? null,
+        excluded: slide.excluded,
+        animationCount: slide.kind === "frame" ? slide.animationSteps.length : 0
+      }))
+    });
+  }
+  function chooseSidepanelPresentationSourceKey(choices, storedSource, preferredType) {
+    if (storedSource && hasPresentationSource(choices, storedSource)) return storedSource;
+    if (preferredType === "frame" && choices.frame) return "frame";
+    if (preferredType === "line" && choices.lines.length > 0) return choices.lines[0]?.key ?? null;
+    return choices.defaultSourceKey;
+  }
+  function getConvertibleSelectedLine(ea2) {
+    const selected = ea2.getViewSelectedElement();
+    if (!isLinearPathElement(selected) || Math.floor(selected.points.length / 2) <= 0) return null;
+    return getLinePresentationSourceKey(selected) ? null : selected;
+  }
+  function getDeclarableSelectedFrame(ea2) {
+    const selected = ea2.getViewSelectedElement();
+    if (!isFrameElement(selected)) return null;
+    const alreadyDeclared = ea2.getViewElements().some((element) => isFrameElement(element) && hasFrameSlideshowDeclaration(element.customData));
+    return alreadyDeclared ? null : selected;
+  }
+  function getPresentationSourceLabels(choices, frameLabel, defaultLineLabel) {
+    const result = [];
+    if (choices.frame) result.push({ key: "frame", label: frameLabel });
+    const bases = choices.lines.map((line) => line.name?.trim() || defaultLineLabel);
+    const totals = /* @__PURE__ */ new Map();
+    for (const base of bases) totals.set(base, (totals.get(base) ?? 0) + 1);
+    const seen = /* @__PURE__ */ new Map();
+    choices.lines.forEach((line, index) => {
+      const base = bases[index] ?? defaultLineLabel;
+      const ordinal = (seen.get(base) ?? 0) + 1;
+      seen.set(base, ordinal);
+      result.push({
+        key: line.key,
+        label: (totals.get(base) ?? 0) > 1 ? `${base} (${ordinal})` : base
+      });
+    });
+    return result;
+  }
+  function getLineSourceByKey(choices, sourceKey) {
+    if (!sourceKey || sourceKey === "frame") return null;
+    return choices.lines.find((line) => line.key === sourceKey) ?? null;
+  }
+  function getSorterSceneSelectionSignature(appState) {
+    const selectedElementIds = Object.keys(appState.selectedElementIds).filter((id) => appState.selectedElementIds[id]).sort();
+    const editor = appState.selectedLinearElement;
+    return JSON.stringify({
+      selectedElementIds,
+      selectedLinearElement: editor ? {
+        elementId: editor.elementId,
+        isEditing: editor.isEditing,
+        selectedPointsIndices: editor.selectedPointsIndices ? [...editor.selectedPointsIndices].sort((a, b) => a - b) : null
+      } : null
+    });
+  }
+  function getSceneSelectedSlideId(resolved, appState) {
+    if (!resolved) return null;
+    if (resolved.deck.kind === "frame") {
+      const selectedSlides = resolved.deck.slides.filter(
+        (slide) => slide.kind === "frame" && appState.selectedElementIds[slide.frameId]
+      );
+      return selectedSlides.length === 1 ? selectedSlides[0]?.id ?? null : null;
+    }
+    const editor = appState.selectedLinearElement;
+    if (!editor?.isEditing || editor.elementId !== resolved.pathElement?.id) return null;
+    const pointIndices = editor.selectedPointsIndices;
+    if (!pointIndices || pointIndices.length === 0) return null;
+    const pairIndices = new Set(pointIndices.map((pointIndex) => Math.floor(pointIndex / 2)));
+    if (pairIndices.size !== 1) return null;
+    const pairIndex = pairIndices.values().next().value;
+    return pairIndex === void 0 ? null : resolved.deck.slides[pairIndex]?.id ?? null;
+  }
+  function getResumeSlideForPresentation(progress, progressType, presentationType, visibleSlideCount, progressSource, presentationSource) {
+    if (progress === void 0 || presentationType === null || visibleSlideCount <= 0) return null;
+    if (progressType && progressType !== presentationType) return null;
+    if (progressSource && presentationSource && progressSource !== presentationSource) return null;
+    return Math.min(Math.max(progress, 0), visibleSlideCount - 1);
+  }
+  function resolveDeviceLaunchModes(isMobile, windowMode, notesMode, hasSecondaryDisplay) {
+    return {
+      startFullscreen: isMobile || windowMode === "fullscreen",
+      openPresenterView: !isMobile && notesMode === "presenter" && hasSecondaryDisplay
+    };
+  }
+  var SlideshowSidepanel = class {
+    constructor(options) {
+      this.options = options;
+      this.ownerWindow = options.tab.contentEl.ownerDocument.defaultView ?? window;
+      this.boundView = null;
+      const launchPreferences = loadSlideshowLaunchPreferences(options.ea);
+      this.startMode = launchPreferences.startMode;
+      this.windowMode = launchPreferences.windowMode;
+      this.notesMode = launchPreferences.notesMode;
+      this.preferredPresentationType = launchPreferences.presentationType;
+      this.sorterThumbnailMaxWidth = loadSorterThumbnailMaxWidth(options.ea);
+      this.deviceKey = getSlideshowDeviceKey(this.ownerWindow);
+    }
+    sorter = null;
+    previewService = null;
+    resolved = null;
+    choices = {
+      frame: null,
+      lines: [],
+      line: null,
+      defaultSourceKey: null,
+      defaultType: null
+    };
+    presentationSourceKey = null;
+    presentationSourceByDrawing = /* @__PURE__ */ new Map();
+    refreshTimer = 0;
+    ownerWindow;
+    lastFingerprint = "";
+    pendingRefresh = false;
+    sceneSelectionSignature = null;
+    pendingSceneSlideId = null;
+    closed = false;
+    bindGeneration = 0;
+    activeLeafChangeRef = null;
+    boundView;
+    requestedSlideId = null;
+    animationEditor = null;
+    animationEditingSlideId = null;
+    startMode = "beginning";
+    windowMode = "fullscreen";
+    notesMode = "slides";
+    launchSettingsExpanded = false;
+    preferredPresentationType;
+    displays = [];
+    presentationDisplayId = null;
+    presenterDisplayId = null;
+    displayConfigurationKey = null;
+    deviceKey;
+    settingsWriteQueue = Promise.resolve();
+    removeDisplayChangeListener = null;
+    displayRefreshTimer = 0;
+    sorterThumbnailMaxWidth;
+    /** Returns the drawing currently edited by this sidepanel. */
+    getBoundView() {
+      return this.boundView;
+    }
+    /** Focuses and reveals the slide requested by an element action after the tab is visible. */
+    revealRequestedSlide() {
+      const slideId = this.requestedSlideId;
+      if (!slideId) return;
+      this.sorter?.scrollToSlide(slideId);
+      this.ownerWindow.setTimeout(() => {
+        if (this.requestedSlideId === slideId) this.requestedSlideId = null;
+      }, 500);
+    }
+    /** Rebinds the panel to a concrete view and optionally selects its deck type. */
+    async activate(view, preferredSource, preferredSlideId) {
+      if (preferredSource) {
+        const sourceKey = preferredSource === "line" ? null : preferredSource;
+        if (sourceKey) this.presentationSourceByDrawing.set(view.file.path, sourceKey);
+        else this.preferredPresentationType = "line";
+      }
+      if (preferredSlideId) this.requestedSlideId = preferredSlideId;
+      if (view === this.boundView) {
+        this.options.ea.setView(view);
+        this.lastFingerprint = "";
+        await this.refresh(true);
+        return;
+      }
+      const generation = ++this.bindGeneration;
+      await this.applyViewBinding(view, generation);
+    }
+    /** Installs lifecycle hooks, workspace focus tracking, and scene-change tracking. */
+    initialize() {
+      const { ea: ea2, tab } = this.options;
+      tab.onOpen = () => void this.refresh(true);
+      tab.onFocus = (view) => this.bindView(view);
+      tab.onWindowMigrated = (win) => {
+        if (this.displayRefreshTimer) this.ownerWindow.clearTimeout(this.displayRefreshTimer);
+        this.displayRefreshTimer = 0;
+        this.removeDisplayChangeListener?.();
+        this.removeDisplayChangeListener = null;
+        this.ownerWindow = win;
+        this.bindDisplayChangeListener();
+        this.sorter?.onWindowMigrated(win);
+        void this.animationEditor?.destroy();
+        this.animationEditor = null;
+        this.animationEditingSlideId = null;
+        this.previewService?.clear();
+        this.lastFingerprint = "";
+        void this.refresh(true);
+      };
+      tab.onExcalidrawViewClosed = () => this.bindView(null);
+      tab.onClose = () => {
+        this.closed = true;
+        if (this.refreshTimer) this.ownerWindow.clearTimeout(this.refreshTimer);
+        this.refreshTimer = 0;
+        if (this.displayRefreshTimer) this.ownerWindow.clearTimeout(this.displayRefreshTimer);
+        this.displayRefreshTimer = 0;
+        this.removeDisplayChangeListener?.();
+        this.removeDisplayChangeListener = null;
+        const sorter = this.sorter;
+        this.sorter = null;
+        void sorter?.flushNotes().finally(() => sorter.destroy());
+        void this.animationEditor?.destroy();
+        this.animationEditor = null;
+        this.animationEditingSlideId = null;
+        this.previewService?.clear();
+        this.previewService = null;
+        ea2.onSceneChangeHook = null;
+        if (this.activeLeafChangeRef) {
+          app.workspace.offref(this.activeLeafChangeRef);
+          this.activeLeafChangeRef = null;
+        }
+        this.options.onClosed();
+      };
+      this.activeLeafChangeRef = app.workspace.on(
+        "active-leaf-change",
+        (leaf) => {
+          if (this.closed || leaf === ea2.getSidepanelLeaf()) return;
+          if (leaf && ea2.isExcalidrawView(leaf.view)) {
+            this.bindView(leaf.view);
+            return;
+          }
+          if (leaf?.view.getViewType?.() === "empty") return;
+          this.bindView(null);
+        }
+      );
+      ea2.onSceneChangeHook = {
+        appStateKeys: [
+          "selectedElementIds",
+          "selectedGroupIds",
+          "selectedLinearElement",
+          "viewBackgroundColor",
+          "theme"
+        ],
+        trackElements: true,
+        triggerWhenInvisible: false,
+        callback: (elements, appState, _files, view) => {
+          if (!this.boundView || view !== this.boundView) return;
+          if (this.sorter?.isEditingNotes()) {
+            this.pendingRefresh = true;
+            return;
+          }
+          if (this.animationEditor) {
+            this.animationEditor.handleSceneChange(elements, appState);
+            return;
+          }
+          const selectionSignature = getSorterSceneSelectionSignature(appState);
+          if (selectionSignature !== this.sceneSelectionSignature) {
+            this.sceneSelectionSignature = selectionSignature;
+            const selectedSlideId = getSceneSelectedSlideId(this.resolved, appState);
+            this.pendingSceneSlideId = selectedSlideId;
+            if (selectedSlideId) void this.sorter?.selectFromScene(selectedSlideId);
+          }
+          this.scheduleRefresh();
+        }
+      };
+      this.bindDisplayChangeListener();
+      if (this.boundView) void this.refresh(true);
+      else this.renderUnavailable();
+    }
+    bindView(view) {
+      if (this.closed) return;
+      if (view === this.boundView) {
+        if (view) void this.refresh();
+        else this.renderUnavailable();
+        return;
+      }
+      const generation = ++this.bindGeneration;
+      void this.applyViewBinding(view, generation);
+    }
+    async applyViewBinding(view, generation) {
+      const previousSorter = this.sorter;
+      await previousSorter?.flushNotes();
+      if (this.closed || generation !== this.bindGeneration) return;
+      previousSorter?.destroy();
+      if (this.sorter === previousSorter) this.sorter = null;
+      await this.animationEditor?.destroy();
+      this.animationEditor = null;
+      this.animationEditingSlideId = null;
+      this.previewService?.clear();
+      this.previewService = null;
+      this.resolved = null;
+      this.choices = {
+        frame: null,
+        lines: [],
+        line: null,
+        defaultSourceKey: null,
+        defaultType: null
+      };
+      this.presentationSourceKey = null;
+      this.sceneSelectionSignature = null;
+      this.pendingSceneSlideId = null;
+      this.lastFingerprint = "";
+      this.boundView = view;
+      this.options.ea.setView(view);
+      this.options.ea.clear();
+      if (!view) {
+        this.renderUnavailable();
+        return;
+      }
+      await this.refresh(true);
+    }
+    scheduleRefresh() {
+      if (this.closed) return;
+      if (this.sorter?.isEditingNotes()) {
+        this.pendingRefresh = true;
+        return;
+      }
+      if (this.refreshTimer) this.ownerWindow.clearTimeout(this.refreshTimer);
+      this.refreshTimer = this.ownerWindow.setTimeout(() => {
+        this.refreshTimer = 0;
+        void this.refresh();
+      }, 180);
+    }
+    appendSupportLine(root, doc) {
+      const support = doc.createElement("div");
+      support.className = "slideshow-sidepanel__support";
+      const prefix = doc.createElement("span");
+      prefix.textContent = `${this.options.t("supportPrompt")} `;
+      support.appendChild(prefix);
+      const link = doc.createElement("a");
+      link.href = "https://ko-fi.com/zsolt";
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.textContent = this.options.t("supportLink");
+      support.appendChild(link);
+      root.appendChild(support);
+    }
+    appendSettingsButton(header, doc) {
+      const { ea: ea2, icons, t } = this.options;
+      const settingsButton = doc.createElement("button");
+      settingsButton.type = "button";
+      settingsButton.className = "slideshow-sidepanel__icon-button";
+      settingsButton.setAttribute("aria-label", t("settingsTitle"));
+      settingsButton.innerHTML = icons.settings;
+      settingsButton.addEventListener("click", () => {
+        void (async () => {
+          await this.sorter?.flushNotes();
+          openSlideshowSettingsModal(ea2, this.options.config, t, () => {
+            this.previewService?.clear();
+            this.lastFingerprint = "";
+            void this.refresh(true);
+          });
+        })();
+      });
+      header.appendChild(settingsButton);
+    }
+    appendInfoButton(header, doc) {
+      const { ea: ea2, icons, t } = this.options;
+      const infoButton = doc.createElement("button");
+      infoButton.type = "button";
+      infoButton.className = "slideshow-sidepanel__icon-button";
+      infoButton.setAttribute("aria-label", t("quickGuideButton"));
+      infoButton.innerHTML = icons.info;
+      infoButton.addEventListener("click", () => openSlideshowQuickGuideModal(ea2, t));
+      header.appendChild(infoButton);
+    }
+    bindDisplayChangeListener() {
+      this.removeDisplayChangeListener?.();
+      this.removeDisplayChangeListener = onDisplayConfigurationChanged(this.ownerWindow, () => {
+        if (this.closed) return;
+        if (this.displayRefreshTimer) this.ownerWindow.clearTimeout(this.displayRefreshTimer);
+        this.displayRefreshTimer = this.ownerWindow.setTimeout(() => {
+          this.displayRefreshTimer = 0;
+          this.lastFingerprint = "";
+          void this.refresh(true);
+        }, 120);
+      });
+    }
+    renderUnavailable() {
+      const { tab, t } = this.options;
+      tab.setDisabled(false);
+      tab.contentEl.replaceChildren();
+      const style = tab.contentEl.ownerDocument.createElement("style");
+      style.textContent = SLIDESHOW_SIDEPANEL_STYLES;
+      tab.contentEl.appendChild(style);
+      const root = tab.contentEl.ownerDocument.createElement("div");
+      root.className = "slideshow-sidepanel";
+      tab.contentEl.appendChild(root);
+      const doc = tab.contentEl.ownerDocument;
+      this.appendSupportLine(root, doc);
+      const header = doc.createElement("div");
+      header.className = "slideshow-sidepanel__header";
+      root.appendChild(header);
+      this.appendInfoButton(header, doc);
+      this.appendSettingsButton(header, doc);
+      const empty = tab.contentEl.ownerDocument.createElement("div");
+      empty.className = "slideshow-empty";
+      empty.textContent = t("noEligibleSlides");
+      root.appendChild(empty);
+    }
+    /** Refreshes deck data and previews only when the debounced scene fingerprint changes. */
+    async refresh(force = false) {
+      const { ea: ea2 } = this.options;
+      const view = this.boundView;
+      if (this.closed || !view) {
+        this.renderUnavailable();
+        return;
+      }
+      if (this.sorter?.isEditingNotes()) {
+        this.pendingRefresh = true;
+        return;
+      }
+      if (ea2.targetView !== view) ea2.setView(view);
+      const api = ea2.getExcalidrawAPI();
+      if (!api) {
+        this.renderUnavailable();
+        return;
+      }
+      const choices = resolveSlideDeckChoices(ea2);
+      const drawingKey = view.file.path;
+      const storedSource = this.presentationSourceByDrawing.get(drawingKey);
+      const presentationSourceKey = chooseSidepanelPresentationSourceKey(
+        choices,
+        storedSource,
+        this.preferredPresentationType
+      );
+      if (presentationSourceKey)
+        this.presentationSourceByDrawing.set(drawingKey, presentationSourceKey);
+      const resolved = resolvePresentationSource(choices, presentationSourceKey);
+      const appState = api.getAppState();
+      const lineFingerprint = choices.lines.map((line) => `${line.key}:${line.name ?? ""}:${getDeckFingerprint(line.resolved)}`).join("|");
+      const convertibleId = getConvertibleSelectedLine(ea2)?.id ?? "none";
+      const declarableFrameId = getDeclarableSelectedFrame(ea2)?.id ?? "none";
+      const compositeFingerprint = `${presentationSourceKey ?? "none"}|${getDeckFingerprint(choices.frame)}|${lineFingerprint}|candidate=${convertibleId}|frameCandidate=${declarableFrameId}|${appState.theme}|${appState.viewBackgroundColor}|${getSceneVisualFingerprint(ea2.getViewElements())}`;
+      if (!force && compositeFingerprint === this.lastFingerprint) return;
+      const requestedSlideId = this.requestedSlideId;
+      if (this.sceneSelectionSignature === null) {
+        this.sceneSelectionSignature = getSorterSceneSelectionSignature(appState);
+        this.pendingSceneSlideId = getSceneSelectedSlideId(resolved, appState);
+      }
+      const selectedId = this.animationEditingSlideId ?? requestedSlideId ?? this.pendingSceneSlideId ?? this.sorter?.getSelectedSlideId() ?? null;
+      const expandedNotesId = this.sorter?.getExpandedNotesSlideId() ?? null;
+      const sorterScrollTop = this.sorter?.getScrollTop() ?? 0;
+      this.sorter?.destroy();
+      this.sorter = null;
+      this.choices = choices;
+      this.presentationSourceKey = presentationSourceKey;
+      this.resolved = resolved;
+      this.lastFingerprint = compositeFingerprint;
+      this.pendingRefresh = false;
+      this.previewService ??= new SlidePreviewService(ea2, api, this.options.config);
+      const renderedSorter = this.render(selectedId, expandedNotesId);
+      this.pendingSceneSlideId = null;
+      if (requestedSlideId) {
+        renderedSorter?.scrollToSlide(requestedSlideId);
+      } else {
+        renderedSorter?.restoreScrollTop(sorterScrollTop);
+      }
+    }
+    render(preferredSlideId, preferredNotesSlideId) {
+      const { tab, t, icons, ea: ea2 } = this.options;
+      tab.setDisabled(false);
+      tab.contentEl.replaceChildren();
+      const style = tab.contentEl.ownerDocument.createElement("style");
+      style.textContent = SLIDESHOW_SIDEPANEL_STYLES;
+      tab.contentEl.appendChild(style);
+      const doc = tab.contentEl.ownerDocument;
+      const root = doc.createElement("div");
+      root.className = "slideshow-sidepanel";
+      root.style.setProperty(
+        "--slideshow-sorter-thumbnail-max-width",
+        `${this.sorterThumbnailMaxWidth}px`
+      );
+      tab.contentEl.appendChild(root);
+      this.appendSupportLine(root, doc);
+      const header = doc.createElement("div");
+      header.className = "slideshow-sidepanel__header";
+      root.appendChild(header);
+      const noVisibleSlides = Boolean(this.resolved && this.resolved.deck.visibleSlides.length === 0);
+      const resumeSlide = this.boundView && this.resolved ? getResumeSlideForPresentation(
+        getSlideshowProgress(this.boundView),
+        getSlideshowProgressType(this.boundView),
+        this.presentationSourceKey ? getPresentationSourceType(this.presentationSourceKey) : null,
+        this.resolved.deck.visibleSlides.length,
+        getSlideshowProgressSource(this.boundView),
+        this.presentationSourceKey
+      ) : null;
+      const selectedSlideId = this.sorter?.getSelectedSlideId() ?? preferredSlideId ?? this.resolved?.deck.slides[0]?.id ?? null;
+      const selectedVisibleIndex = this.resolved ? getVisibleSlideIndex(this.resolved.deck, selectedSlideId) : null;
+      this.refreshDisplayTargets();
+      const startButton = doc.createElement("button");
+      startButton.type = "button";
+      startButton.className = "slideshow-sidepanel__icon-button slideshow-sidepanel__launch-main";
+      startButton.setAttribute("aria-label", t("startPresentation"));
+      startButton.innerHTML = icons.play;
+      startButton.disabled = !this.resolved || noVisibleSlides;
+      header.appendChild(startButton);
+      startButton.addEventListener("click", () => void this.launchPresentation());
+      const printButton = doc.createElement("button");
+      printButton.type = "button";
+      printButton.className = "slideshow-sidepanel__icon-button";
+      const printLabel = t("printPdf", {
+        width: this.options.config.printSlideWidth,
+        height: this.options.config.printSlideHeight
+      });
+      printButton.setAttribute("aria-label", printLabel);
+      printButton.innerHTML = icons.printer;
+      printButton.disabled = !this.resolved || noVisibleSlides;
+      header.appendChild(printButton);
+      printButton.addEventListener("click", (event) => {
+        void this.printPresentation(event);
+      });
+      const declarableFrame = getDeclarableSelectedFrame(ea2);
+      const convertibleLine = getConvertibleSelectedLine(ea2);
+      if (declarableFrame) {
+        const createFrameButton = doc.createElement("button");
+        createFrameButton.type = "button";
+        createFrameButton.className = "slideshow-sidepanel__icon-button";
+        createFrameButton.setAttribute("aria-label", t("declareFrameSlideshow"));
+        createFrameButton.innerHTML = icons.plus;
+        createFrameButton.addEventListener("click", () => void this.declareSelectedFrameSlideshow());
+        header.appendChild(createFrameButton);
+      } else if (convertibleLine) {
+        const createPathButton = doc.createElement("button");
+        createPathButton.type = "button";
+        createPathButton.className = "slideshow-sidepanel__icon-button";
+        createPathButton.setAttribute("aria-label", t("createLinePresentation"));
+        createPathButton.innerHTML = icons.plus;
+        createPathButton.addEventListener(
+          "click",
+          () => void this.convertSelectedLineToPresentation()
+        );
+        header.appendChild(createPathButton);
+      } else if (this.presentationSourceKey !== "frame" && this.resolved?.pathElement) {
+        const pathHidden = isPresentationPathHidden(this.resolved.pathElement);
+        const pathButton = doc.createElement("button");
+        pathButton.type = "button";
+        pathButton.className = "slideshow-sidepanel__icon-button";
+        pathButton.setAttribute(
+          "aria-label",
+          t(pathHidden ? "showPresentationPath" : "hidePresentationPath")
+        );
+        pathButton.innerHTML = pathHidden ? icons.eyeOff : icons.eye;
+        pathButton.addEventListener("click", () => void this.togglePresentationPathVisibility());
+        header.appendChild(pathButton);
+      }
+      this.appendInfoButton(header, doc);
+      this.appendSettingsButton(header, doc);
+      if (!this.resolved || !this.previewService) {
+        const empty = doc.createElement("div");
+        empty.className = "slideshow-empty";
+        empty.textContent = t("noEligibleSlides");
+        root.appendChild(empty);
+        return null;
+      }
+      const launchSettings = doc.createElement("details");
+      launchSettings.className = "slideshow-sidepanel__launch-settings";
+      launchSettings.open = this.launchSettingsExpanded;
+      launchSettings.addEventListener("toggle", () => {
+        this.launchSettingsExpanded = launchSettings.open;
+      });
+      const launchSummary = doc.createElement("summary");
+      launchSummary.className = "slideshow-sidepanel__launch-settings-summary";
+      launchSummary.textContent = t("presentationSettings");
+      launchSettings.appendChild(launchSummary);
+      root.appendChild(launchSettings);
+      const launchOptions = doc.createElement("div");
+      launchOptions.className = "slideshow-sidepanel__launch-options";
+      launchSettings.appendChild(launchOptions);
+      const appendSelect = (labelText, value, options, onChange) => {
+        const label = doc.createElement("label");
+        label.className = "slideshow-sidepanel__launch-option";
+        const select = doc.createElement("select");
+        select.setAttribute("aria-label", labelText);
+        for (const optionDefinition of options) {
+          const option = doc.createElement("option");
+          option.value = optionDefinition.value;
+          option.textContent = optionDefinition.label;
+          option.disabled = optionDefinition.disabled ?? false;
+          select.appendChild(option);
+        }
+        select.value = value;
+        select.addEventListener("change", () => onChange(select.value));
+        label.appendChild(select);
+        launchOptions.appendChild(label);
+        return select;
+      };
+      const sourceOptions = getPresentationSourceLabels(
+        this.choices,
+        t("frameDeck"),
+        t("linePresentationDefaultName")
+      );
+      if (sourceOptions.length > 1 && this.presentationSourceKey) {
+        appendSelect(
+          t("presentationType"),
+          this.presentationSourceKey,
+          sourceOptions.map((option) => ({ value: option.key, label: option.label })),
+          (nextSource) => void this.selectPresentationSource(nextSource)
+        );
+      }
+      const effectiveStartMode = this.startMode === "resume" && resumeSlide === null ? "beginning" : this.startMode === "current" && selectedVisibleIndex === null ? "beginning" : this.startMode;
+      appendSelect(
+        t("startMode"),
+        effectiveStartMode,
+        [
+          { value: "beginning", label: t("startModeStart") },
+          { value: "resume", label: t("startModeResume"), disabled: resumeSlide === null },
+          {
+            value: "current",
+            label: t("startModeCurrent"),
+            disabled: selectedVisibleIndex === null
+          }
+        ],
+        (mode) => {
+          this.startMode = mode;
+          void this.persistLaunchPreferences();
+        }
+      );
+      if (!ea2.DEVICE.isMobile) {
+        appendSelect(
+          t("windowMode"),
+          this.windowMode,
+          [
+            { value: "fullscreen", label: t("windowModeFullscreen") },
+            { value: "window", label: t("windowModeWindowed") }
+          ],
+          (mode) => {
+            this.windowMode = mode;
+            void this.persistLaunchPreferences();
+          }
+        );
+        const hasSecondaryDisplay = this.displays.length > 1;
+        appendSelect(
+          t("notesMode"),
+          hasSecondaryDisplay ? this.notesMode : "slides",
+          [
+            { value: "slides", label: t("notesModeSlidesOnly") },
+            {
+              value: "presenter",
+              label: t("notesModeWithNotes"),
+              disabled: !hasSecondaryDisplay
+            }
+          ],
+          (mode) => {
+            this.notesMode = mode;
+            void this.persistLaunchPreferences();
+            this.lastFingerprint = "";
+            void this.refresh(true);
+          }
+        );
+      }
+      if (!ea2.DEVICE.isMobile && this.notesMode === "presenter" && this.displays.length > 1) {
+        const displayControls = doc.createElement("div");
+        displayControls.className = "slideshow-sidepanel__display-controls";
+        launchSettings.appendChild(displayControls);
+        const appendDisplayPicker = (labelText, selectedId, onChange) => {
+          const label = doc.createElement("label");
+          const caption = doc.createElement("span");
+          caption.textContent = labelText;
+          label.appendChild(caption);
+          const select = doc.createElement("select");
+          select.setAttribute("aria-label", labelText);
+          for (const display of this.displays) {
+            const option = doc.createElement("option");
+            option.value = String(display.id);
+            option.textContent = this.getDisplayLabel(display);
+            select.appendChild(option);
+          }
+          if (selectedId !== null) select.value = String(selectedId);
+          select.addEventListener("change", () => onChange(Number(select.value)));
+          label.appendChild(select);
+          displayControls.appendChild(label);
+        };
+        appendDisplayPicker(t("presentationDisplay"), this.presentationDisplayId, (id) => {
+          this.presentationDisplayId = id;
+          void this.persistDisplayPreferences();
+        });
+        appendDisplayPicker(t("presenterDisplay"), this.presenterDisplayId, (id) => {
+          this.presenterDisplayId = id;
+          void this.persistDisplayPreferences();
+        });
+      }
+      const deck = this.resolved.deck;
+      const summaryRow = doc.createElement("div");
+      summaryRow.className = "slideshow-sidepanel__summary-row";
+      root.appendChild(summaryRow);
+      const summary = doc.createElement("div");
+      summary.className = "slideshow-sidepanel__summary";
+      summaryRow.appendChild(summary);
+      const activeSourceLabel = sourceOptions.find((option) => option.key === this.presentationSourceKey)?.label ?? (deck.kind === "frame" ? t("frameDeck") : t("linePresentationDefaultName"));
+      summary.textContent = `${activeSourceLabel} \xB7 ${t("visibleSlideCount", { visible: deck.visibleSlides.length, total: deck.slides.length })}`;
+      const thumbnailSizeControl = doc.createElement("label");
+      thumbnailSizeControl.className = "slideshow-sidepanel__thumbnail-size-control";
+      thumbnailSizeControl.setAttribute("aria-label", t("sorterThumbnailSize"));
+      thumbnailSizeControl.title = t("sorterThumbnailSize");
+      const thumbnailSizeSlider = doc.createElement("input");
+      thumbnailSizeSlider.type = "range";
+      thumbnailSizeSlider.min = "140";
+      thumbnailSizeSlider.max = "520";
+      thumbnailSizeSlider.step = "20";
+      thumbnailSizeSlider.value = String(this.sorterThumbnailMaxWidth);
+      thumbnailSizeSlider.setAttribute("aria-label", t("sorterThumbnailSize"));
+      thumbnailSizeSlider.addEventListener("input", () => {
+        this.sorterThumbnailMaxWidth = Number(thumbnailSizeSlider.value);
+        root.style.setProperty(
+          "--slideshow-sorter-thumbnail-max-width",
+          `${this.sorterThumbnailMaxWidth}px`
+        );
+      });
+      thumbnailSizeSlider.addEventListener("change", () => {
+        void this.persistSorterThumbnailMaxWidth();
+      });
+      thumbnailSizeControl.appendChild(thumbnailSizeSlider);
+      summaryRow.appendChild(thumbnailSizeControl);
+      if (deck.kind === "path") {
+        const presentationSettingsButton = doc.createElement("button");
+        presentationSettingsButton.type = "button";
+        presentationSettingsButton.className = "slideshow-sidepanel__icon-button slideshow-sidepanel__presentation-settings";
+        presentationSettingsButton.setAttribute("aria-label", t("linePresentationSettings"));
+        presentationSettingsButton.innerHTML = icons.moreHorizontal;
+        presentationSettingsButton.addEventListener(
+          "click",
+          () => this.openLinePresentationSettings()
+        );
+        summaryRow.appendChild(presentationSettingsButton);
+      }
+      const reorderEnabled = !this.resolved.pathElement || !hasBoundLineEndpoint(this.resolved.pathElement);
+      if (!reorderEnabled) {
+        const warning = doc.createElement("div");
+        warning.className = "slideshow-warning";
+        warning.textContent = t("lineReorderBound");
+        root.appendChild(warning);
+      }
+      if (deck.kind === "path") {
+        const warning = doc.createElement("div");
+        warning.className = "slideshow-warning";
+        warning.textContent = t("lineAnimationUnsupported");
+        root.appendChild(warning);
+      }
+      const sorterContainer = doc.createElement("div");
+      sorterContainer.className = "slideshow-sorter";
+      sorterContainer.setAttribute("role", "list");
+      root.appendChild(sorterContainer);
+      this.sorter = new SlideSorter({
+        ea: ea2,
+        container: sorterContainer,
+        deck,
+        previewService: this.previewService,
+        icons,
+        t,
+        reorderEnabled,
+        animationEditingSlideId: this.animationEditingSlideId,
+        callbacks: {
+          move: (fromIndex, toIndex) => this.moveSlide(fromIndex, toIndex),
+          toggleInclusion: (slide, excluded) => this.toggleInclusion(slide, excluded),
+          zoomToSlide: (slide) => this.zoomToSlide(slide),
+          saveNotes: (slide, notes) => this.saveNotes(slide, notes),
+          requestAnimationEditor: (slide) => this.requestAnimationEditor(slide),
+          mountAnimationEditor: (slide, container) => this.mountAnimationEditor(slide, container),
+          editFrameSlideName: (slide) => this.openFrameSlideNameEditor(slide),
+          editLineSlide: (slide, index) => this.editLineSlide(slide, index),
+          notesBlurred: () => {
+            if (this.pendingRefresh) this.scheduleRefresh();
+          }
+        }
+      });
+      this.sorter.render(preferredSlideId, preferredNotesSlideId);
+      return this.sorter;
+    }
+    refreshDisplayTargets() {
+      const hostWindow = this.boundView?.ownerWindow ?? this.ownerWindow;
+      const displays = getAvailableDisplays(hostWindow);
+      const configurationKey = getSlideshowDisplayConfigurationKey(displays);
+      const configurationChanged = configurationKey !== this.displayConfigurationKey;
+      this.displays = displays;
+      this.displayConfigurationKey = configurationKey;
+      if (displays.length === 0) {
+        this.presentationDisplayId = null;
+        this.presenterDisplayId = null;
+        return;
+      }
+      const defaults = chooseDefaultDisplayTargets(displays, getCurrentDisplayId(hostWindow));
+      const saved = loadSlideshowDisplayPreferences(
+        this.options.ea,
+        this.deviceKey,
+        configurationKey
+      );
+      const savedPresentationId = saved ? resolveSlideshowDisplayTarget(
+        displays,
+        saved.presentationDisplayId,
+        saved.presentationDisplayIdentity
+      ) : null;
+      const savedPresenterId = saved ? resolveSlideshowDisplayTarget(
+        displays,
+        saved.presenterDisplayId,
+        saved.presenterDisplayIdentity
+      ) : null;
+      if (configurationChanged) {
+        this.presentationDisplayId = savedPresentationId ?? defaults.presentationDisplayId;
+        this.presenterDisplayId = savedPresenterId ?? defaults.presenterDisplayId;
+        return;
+      }
+      const presentationValid = displays.some(
+        (display) => display.id === this.presentationDisplayId
+      );
+      const presenterValid = displays.some((display) => display.id === this.presenterDisplayId);
+      if (!presentationValid) {
+        this.presentationDisplayId = savedPresentationId ?? defaults.presentationDisplayId;
+      }
+      if (!presenterValid) {
+        this.presenterDisplayId = savedPresenterId ?? defaults.presenterDisplayId;
+      }
+    }
+    getDisplayLabel(display) {
+      const resolution = `${display.bounds.width}\xD7${display.bounds.height}`;
+      const primary = display.primary ? ` \xB7 ${this.options.t("primaryDisplay")}` : "";
+      const name = display.label || this.options.t("displayLabel", { number: display.index + 1 });
+      return `${name} \xB7 ${resolution}${primary}`;
+    }
+    persistLaunchPreferences() {
+      const preferences = {
+        startMode: this.startMode,
+        windowMode: this.windowMode,
+        notesMode: this.notesMode,
+        ...this.presentationSourceKey ? { presentationType: getPresentationSourceType(this.presentationSourceKey) } : {}
+      };
+      this.settingsWriteQueue = this.settingsWriteQueue.then(() => saveSlideshowLaunchPreferences(this.options.ea, preferences)).catch((error) => console.error("Slideshow launch preference save failed", error));
+      return this.settingsWriteQueue;
+    }
+    persistDisplayPreferences() {
+      const presentationDisplay = this.displays.find(
+        (display) => display.id === this.presentationDisplayId
+      );
+      const presenterDisplay = this.displays.find(
+        (display) => display.id === this.presenterDisplayId
+      );
+      const preferences = {
+        presentationDisplayId: this.presentationDisplayId,
+        presenterDisplayId: this.presenterDisplayId,
+        presentationDisplayIdentity: presentationDisplay ? getSlideshowDisplayIdentity(presentationDisplay) : null,
+        presenterDisplayIdentity: presenterDisplay ? getSlideshowDisplayIdentity(presenterDisplay) : null
+      };
+      const configurationKey = this.displayConfigurationKey ?? getSlideshowDisplayConfigurationKey(this.displays);
+      this.settingsWriteQueue = this.settingsWriteQueue.then(
+        () => saveSlideshowDisplayPreferences(
+          this.options.ea,
+          this.deviceKey,
+          preferences,
+          configurationKey
+        )
+      ).catch((error) => console.error("Slideshow display preference save failed", error));
+      return this.settingsWriteQueue;
+    }
+    /** Persists the sorter thumbnail cap through the sidepanel's serialized settings queue. */
+    persistSorterThumbnailMaxWidth() {
+      const width = this.sorterThumbnailMaxWidth;
+      this.settingsWriteQueue = this.settingsWriteQueue.then(() => saveSorterThumbnailMaxWidth(this.options.ea, width)).catch((error) => console.error("Slideshow thumbnail-size save failed", error));
+      return this.settingsWriteQueue;
+    }
+    hideSidepanelForWindowedPresentation() {
+      const sidepanelLeaf = this.options.ea.getSidepanelLeaf();
+      const container = sidepanelLeaf?.view.containerEl;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      const visible = container.isConnected && rect.width > 1 && rect.height > 1 && this.ownerWindow.getComputedStyle(container).display !== "none";
+      if (visible) this.options.ea.toggleSidepanelView();
+    }
+    async launchPresentation() {
+      const view = this.boundView;
+      const resolved = this.resolved;
+      const presentationSourceKey = this.presentationSourceKey;
+      if (!view || !resolved || !presentationSourceKey || resolved.deck.visibleSlides.length === 0)
+        return;
+      const presentationType = getPresentationSourceType(presentationSourceKey);
+      await this.persistLaunchPreferences();
+      const resume = getResumeSlideForPresentation(
+        getSlideshowProgress(view),
+        getSlideshowProgressType(view),
+        presentationType,
+        resolved.deck.visibleSlides.length,
+        getSlideshowProgressSource(view),
+        presentationSourceKey
+      );
+      const selectedId = this.sorter?.getSelectedSlideId() ?? null;
+      const selectedIndex = getVisibleSlideIndex(resolved.deck, selectedId);
+      const effectiveStartMode = this.startMode === "resume" && resume === null ? "beginning" : this.startMode === "current" && selectedIndex === null ? "beginning" : this.startMode;
+      let initialSlide;
+      if (effectiveStartMode === "resume") {
+        initialSlide = resume ?? 0;
+      } else if (effectiveStartMode === "current") {
+        if (selectedIndex === null) {
+          new Notice(this.options.t("selectedSlideNotPresentable"));
+          return;
+        }
+        initialSlide = selectedIndex;
+      } else {
+        initialSlide = 0;
+      }
+      await this.sorter?.flushNotes();
+      await this.animationEditor?.destroy();
+      this.animationEditor = null;
+      this.animationEditingSlideId = null;
+      this.refreshDisplayTargets();
+      await this.persistDisplayPreferences();
+      const { startFullscreen, openPresenterView } = resolveDeviceLaunchModes(
+        this.options.ea.DEVICE.isMobile,
+        this.windowMode,
+        this.notesMode,
+        this.displays.length > 1
+      );
+      const launchOptions = {
+        initialSlide,
+        startFullscreen,
+        openPresenterView,
+        ...openPresenterView && this.presentationDisplayId !== null ? { presentationDisplayId: this.presentationDisplayId } : {},
+        ...openPresenterView && this.presenterDisplayId !== null ? { presenterDisplayId: this.presenterDisplayId } : {}
+      };
+      if (!startFullscreen) this.hideSidepanelForWindowedPresentation();
+      await this.options.startPresentation(presentationSourceKey, launchOptions);
+    }
+    async printPresentation(event) {
+      await this.sorter?.flushNotes();
+      if (this.animationEditor) {
+        await this.animationEditor.destroy();
+        this.animationEditor = null;
+        this.animationEditingSlideId = null;
+        this.lastFingerprint = "";
+        await this.refresh(true);
+      }
+      if (this.presentationSourceKey) {
+        await this.options.printPresentation(this.presentationSourceKey, event);
+      }
+    }
+    async selectPresentationSource(sourceKey) {
+      if (!hasPresentationSource(this.choices, sourceKey) || sourceKey === this.presentationSourceKey)
+        return;
+      await this.sorter?.flushNotes();
+      await this.animationEditor?.destroy();
+      this.animationEditor = null;
+      this.animationEditingSlideId = null;
+      const view = this.boundView;
+      if (!view) return;
+      this.presentationSourceByDrawing.set(view.file.path, sourceKey);
+      this.preferredPresentationType = getPresentationSourceType(sourceKey);
+      this.presentationSourceKey = sourceKey;
+      await this.persistLaunchPreferences();
+      this.lastFingerprint = "";
+      await this.refresh(true);
+    }
+    async convertSelectedLineToPresentation() {
+      const view = this.boundView;
+      const path = getConvertibleSelectedLine(this.options.ea);
+      if (!view || !path) return;
+      try {
+        await this.sorter?.flushNotes();
+        await createLinePresentation(
+          this.options.ea,
+          path.id,
+          this.options.t("linePresentationDefaultName")
+        );
+        await view.forceSave(true);
+        const sourceKey = `line:${path.id}`;
+        this.presentationSourceByDrawing.set(view.file.path, sourceKey);
+        this.presentationSourceKey = sourceKey;
+        this.preferredPresentationType = "line";
+        await this.persistLaunchPreferences();
+        this.lastFingerprint = "";
+        await this.refresh(true);
+      } catch (error) {
+        console.error("Slideshow line presentation creation failed", error);
+        new Notice(this.options.t("metadataSaveFailed"));
+      }
+    }
+    async declareSelectedFrameSlideshow() {
+      const view = this.boundView;
+      const frame = getDeclarableSelectedFrame(this.options.ea);
+      if (!view || !frame) return;
+      try {
+        await this.sorter?.flushNotes();
+        await declareFrameSlideshow(this.options.ea, frame.id);
+        await view.forceSave(true);
+        this.presentationSourceByDrawing.set(view.file.path, "frame");
+        this.presentationSourceKey = "frame";
+        this.preferredPresentationType = "frame";
+        await this.persistLaunchPreferences();
+        this.lastFingerprint = "";
+        await this.refresh(true);
+      } catch (error) {
+        console.error("Slideshow frame presentation declaration failed", error);
+        new Notice(this.options.t("metadataSaveFailed"));
+      }
+    }
+    openFrameSlideNameEditor(slide) {
+      const view = this.boundView;
+      if (!view) return;
+      const frame = this.options.ea.getViewElements().find(
+        (element) => element.id === slide.frameId && isFrameElement(element)
+      );
+      if (!frame) return;
+      const { ea: ea2, t } = this.options;
+      const modal = new ea2.obsidian.Modal(app);
+      modal.titleEl.setText(t("editFrameSlideName"));
+      const input = modal.contentEl.createEl("input", {
+        type: "text",
+        value: frame.name ?? "",
+        attr: { "aria-label": t("frameSlideName") }
+      });
+      input.style.width = "100%";
+      input.style.marginBottom = "1rem";
+      const actions = modal.contentEl.createDiv({ cls: "modal-button-container" });
+      const cancel = actions.createEl("button", { text: t("settingsCancel") });
+      cancel.addEventListener("click", () => modal.close());
+      const save = actions.createEl("button", { text: t("settingsSave"), cls: "mod-cta" });
+      save.addEventListener("click", () => {
+        void (async () => {
+          try {
+            await renameFrameSlide(ea2, slide.frameId, input.value);
+            await view.forceSave(true);
+            modal.close();
+            this.lastFingerprint = "";
+            await this.refresh(true);
+          } catch (error) {
+            console.error("Slideshow frame rename failed", error);
+            new Notice(t("metadataSaveFailed"));
+          }
+        })();
+      });
+      modal.open();
+      input.focus();
+      input.select();
+    }
+    openLinePresentationSettings() {
+      const source = getLineSourceByKey(this.choices, this.presentationSourceKey);
+      const view = this.boundView;
+      if (!source || !view) return;
+      const { ea: ea2, t } = this.options;
+      const modal = new ea2.obsidian.Modal(app);
+      modal.titleEl.setText(t("linePresentationSettings"));
+      const input = modal.contentEl.createEl("input", {
+        type: "text",
+        value: source.name ?? t("linePresentationDefaultName"),
+        attr: { "aria-label": t("linePresentationName") }
+      });
+      input.style.width = "100%";
+      input.style.marginBottom = "1rem";
+      const actions = modal.contentEl.createDiv({
+        cls: "slideshow-line-presentation-settings__actions"
+      });
+      actions.style.display = "flex";
+      actions.style.gap = "0.5rem";
+      actions.style.flexWrap = "wrap";
+      const save = actions.createEl("button", { text: t("settingsSave") });
+      save.addEventListener("click", () => {
+        void (async () => {
+          try {
+            await renameLinePresentation(ea2, source.pathId, input.value);
+            await view.forceSave(true);
+            modal.close();
+            this.lastFingerprint = "";
+            await this.refresh(true);
+          } catch (error) {
+            console.error("Slideshow line presentation rename failed", error);
+            new Notice(t("metadataSaveFailed"));
+          }
+        })();
+      });
+      const remove = actions.createEl("button", { text: t("removeLinePresentation") });
+      remove.style.color = "var(--text-error)";
+      remove.addEventListener("click", () => {
+        const confirmed = this.ownerWindow.confirm(t("removeLinePresentationConfirm"));
+        if (!confirmed) return;
+        void (async () => {
+          try {
+            await removeLinePresentation(ea2, source.pathId);
+            await view.forceSave(true);
+            modal.close();
+            this.presentationSourceByDrawing.delete(view.file.path);
+            this.presentationSourceKey = null;
+            this.lastFingerprint = "";
+            await this.refresh(true);
+          } catch (error) {
+            console.error("Slideshow line presentation removal failed", error);
+            new Notice(t("metadataSaveFailed"));
+          }
+        })();
+      });
+      modal.open();
+      input.focus();
+      input.select();
+    }
+    async togglePresentationPathVisibility() {
+      const path = this.resolved?.pathElement;
+      if (!path) return;
+      try {
+        await this.sorter?.flushNotes();
+        await setLinePresentationPathHidden(
+          this.options.ea,
+          path.id,
+          !isPresentationPathHidden(path)
+        );
+        this.lastFingerprint = "";
+        await this.refresh(true);
+      } catch (error) {
+        console.error("Slideshow presentation path visibility update failed", error);
+        new Notice(this.options.t("metadataSaveFailed"));
+      }
+    }
+    async moveSlide(fromIndex, toIndex) {
+      if (!this.resolved) return;
+      try {
+        await this.sorter?.flushNotes();
+        if (this.resolved.deck.kind === "frame") {
+          await reorderFrameSlides(this.options.ea, fromIndex, toIndex);
+        } else if (this.resolved.pathElement) {
+          await reorderLineSlides(this.options.ea, this.resolved.pathElement.id, fromIndex, toIndex);
+        }
+        this.lastFingerprint = "";
+        await this.refresh(true);
+      } catch (error) {
+        if (error instanceof Error && error.message === "BOUND_PRESENTATION_PATH") {
+          new Notice(this.options.t("lineReorderBound"));
+        } else {
+          console.error("Slideshow sorter reorder failed", error);
+          new Notice(this.options.t("reorderFailed"));
+        }
+      }
+    }
+    async toggleInclusion(slide, excluded) {
+      try {
+        await this.sorter?.flushNotes();
+        if (slide.kind === "frame") {
+          await setFrameExcluded(this.options.ea, slide.frameId, excluded);
+        } else {
+          await setLineSlideExcluded(this.options.ea, slide.pathId, slide.id, excluded);
+        }
+        this.lastFingerprint = "";
+        await this.refresh(true);
+      } catch (error) {
+        console.error("Slideshow inclusion update failed", error);
+        new Notice(this.options.t("metadataSaveFailed"));
+      }
+    }
+    async saveNotes(slide, notes) {
+      try {
+        const view = this.boundView;
+        if (!view) throw new Error("The slideshow sidepanel is not bound to a drawing.");
+        if (this.options.ea.targetView !== view) this.options.ea.setView(view);
+        if (slide.kind === "frame") {
+          await saveFrameNotes(this.options.ea, slide.frameId, notes);
+        } else {
+          await saveLineNotes(this.options.ea, slide.pathId, slide.id, notes);
+        }
+        await view.forceSave(true);
+        this.lastFingerprint = "";
+        if (!this.sorter?.isEditingNotes() && this.pendingRefresh) this.scheduleRefresh();
+      } catch (error) {
+        console.error("Slideshow notes update failed", error);
+        new Notice(this.options.t("metadataSaveFailed"));
+      }
+    }
+    zoomToSlide(slide) {
+      const api = this.options.ea.getExcalidrawAPI();
+      const view = this.boundView;
+      if (!api || !view) return;
+      view.preventAutozoom();
+      const appState = api.getAppState();
+      const rect = getNavigationRect(
+        slide.rect,
+        { width: appState.width, height: appState.height },
+        this.options.config.maxZoom
+      );
+      api.updateScene({
+        appState: {
+          scrollX: -rect.left,
+          scrollY: -rect.top,
+          zoom: { value: rect.nextZoom }
+        }
+      });
+    }
+    async editLineSlide(slide, index) {
+      if (slide.kind !== "path") return;
+      const { ea: ea2 } = this.options;
+      const api = ea2.getExcalidrawAPI();
+      const view = this.boundView;
+      if (!api || !view) return;
+      try {
+        await this.sorter?.flushNotes();
+        const currentPath = ea2.getViewElements().find((element) => element.id === slide.pathId);
+        if (!isLinearPathElement(currentPath)) return;
+        if (isPresentationPathHidden(currentPath)) {
+          await setLinePresentationPathHidden(ea2, currentPath.id, false);
+        }
+        const path = ea2.getViewElements().find((element) => element.id === slide.pathId);
+        if (!isLinearPathElement(path)) return;
+        app.workspace.setActiveLeaf(view.leaf, { focus: true });
+        view.preventAutozoom();
+        ea2.selectElementsInView([path]);
+        const appState = api.getAppState();
+        let rect = getNavigationRect(
+          slide.rect,
+          { width: appState.width, height: appState.height },
+          this.options.config.maxZoom
+        );
+        const offsetWidth = (rect.right - rect.left) * (1 - this.options.config.editZoomOut) / 2;
+        const offsetHeight = (rect.bottom - rect.top) * (1 - this.options.config.editZoomOut) / 2;
+        rect = {
+          left: rect.left - offsetWidth,
+          right: rect.right + offsetWidth,
+          top: rect.top - offsetHeight,
+          bottom: rect.bottom + offsetHeight,
+          nextZoom: Math.max(rect.nextZoom * this.options.config.editZoomOut, 0.1)
+        };
+        api.updateScene({
+          appState: {
+            scrollX: -rect.left,
+            scrollY: -rect.top,
+            zoom: { value: rect.nextZoom }
+          }
+        });
+        api.setActiveTool({ type: "selection" });
+        api.startLineEditor(path, [index * 2, index * 2 + 1]);
+        this.lastFingerprint = "";
+      } catch (error) {
+        console.error("Slideshow line-slide editing failed", error);
+        new Notice(this.options.t("editLineSlideFailed"));
+      }
+    }
+    requestAnimationEditor(slide) {
+      if (slide.kind !== "frame") {
+        new Notice(this.options.t("lineAnimationUnsupported"));
+        return;
+      }
+      void (async () => {
+        await this.sorter?.flushNotes();
+        if (this.animationEditingSlideId === slide.id) {
+          await this.closeAnimationEditor();
+          return;
+        }
+        await this.animationEditor?.destroy();
+        this.animationEditor = null;
+        this.animationEditingSlideId = slide.id;
+        const expandedNotesId = this.sorter?.getExpandedNotesSlideId() ?? null;
+        this.sorter?.destroy();
+        this.sorter = null;
+        const sorter = this.render(slide.id, expandedNotesId);
+        this.selectAndZoomAnimationFrame(slide);
+        sorter?.scrollToSlide(slide.id, false, "start");
+      })();
+    }
+    mountAnimationEditor(slide, container) {
+      const api = this.options.ea.getExcalidrawAPI();
+      const view = this.boundView;
+      if (!api || !view || slide.id !== this.animationEditingSlideId) return;
+      const previousEditor = this.animationEditor;
+      this.animationEditor = null;
+      void previousEditor?.destroy();
+      this.animationEditor = new AnimationEditor({
+        ea: this.options.ea,
+        api,
+        hostView: view,
+        container,
+        slide,
+        icons: this.options.icons,
+        t: this.options.t,
+        onSaved: () => {
+          this.lastFingerprint = "";
+        }
+      });
+      this.animationEditor.render();
+      this.animationEditor.handleSceneChange(this.options.ea.getViewElements(), api.getAppState());
+    }
+    selectAndZoomAnimationFrame(slide) {
+      const view = this.boundView;
+      if (!view) return;
+      const frame = this.options.ea.getViewElements().find((element) => element.id === slide.frameId);
+      if (!frame) return;
+      this.options.ea.selectElementsInView([frame]);
+      this.zoomToSlide(slide);
+      app.workspace.setActiveLeaf(view.leaf, { focus: true });
+    }
+    async closeAnimationEditor() {
+      await this.animationEditor?.destroy();
+      this.animationEditor = null;
+      const slideId = this.animationEditingSlideId;
+      this.animationEditingSlideId = null;
+      this.lastFingerprint = "";
+      await this.refresh(true);
+      if (slideId) this.sorter?.scrollToSlide(slideId);
+    }
+  };
+
+  // src/scripts/slideshow/slideshowLauncher.ts
+  async function ensureManualSlideshowDeclaration(context) {
+    const { ea: ea2, view } = context;
+    ea2.setView(view);
+    const selected = ea2.getViewSelectedElement();
+    if (isLinearPathElement(selected)) {
+      const existingSourceKey = getLinePresentationSourceKey(selected);
+      if (existingSourceKey) return existingSourceKey;
+      if (Math.floor(selected.points.length / 2) > 0) {
+        await createLinePresentation(ea2, selected.id);
+        return `line:${selected.id}`;
+      }
+    }
+    const frames = ea2.getViewElements().filter(isFrameElement);
+    if (frames.length === 0) return void 0;
+    const alreadyDeclared = frames.some((frame) => hasFrameSlideshowDeclaration(frame.customData));
+    if (!alreadyDeclared) {
+      const declarationFrame = isFrameElement(selected) ? selected : frames[0];
+      if (declarationFrame) await declareFrameSlideshow(ea2, declarationFrame.id);
+    }
+    return "frame";
+  }
+  function resolveManualInvocationIntent(modifiers) {
+    return {
+      openSidepanel: modifiers.ctrlKey || modifiers.metaKey,
+      resume: modifiers.shiftKey,
+      startFullscreen: !modifiers.altKey
+    };
+  }
+  function resolveLaunchModifiers(view) {
+    return { startFullscreen: !view.modifierKeyDown.altKey };
+  }
+  function getElementPresentationSourceKey(element) {
+    if (isFrameElement(element) && hasFrameSlideshowDeclaration(element.customData)) return "frame";
+    if (isLinearPathElement(element)) return getLinePresentationSourceKey(element);
+    return null;
+  }
+  function registerSlideshowElementActionProvider(context) {
+    return context.ea.registerElementActionProvider((element) => {
+      const latestContext = getSlideshowViewContext(context.view) ?? context;
+      const presentationSourceKey = getElementPresentationSourceKey(element) ?? (isFrameElement(element) && latestContext.ea.getViewElements().some(
+        (candidate) => isFrameElement(candidate) && hasFrameSlideshowDeclaration(candidate.customData)
+      ) ? "frame" : null);
+      if (!presentationSourceKey) return [];
+      return [
+        {
+          id: "edit-slideshow",
+          title: latestContext.t("editSlideshow"),
+          icon: "presentation",
+          action: () => {
+            latestContext.ea.setView(latestContext.view);
+            void openSlideshowSidepanel(
+              latestContext,
+              presentationSourceKey,
+              presentationSourceKey === "frame" ? element.id : void 0
+            );
+          }
+        }
+      ];
+    });
+  }
+  async function startSlideshowPresentation(context, launch = {}) {
+    const { ea: ea2, view, config, t } = context;
+    ea2.setView(view);
+    if (view.isDirty()) await view.forceSave(true);
+    const api = ea2.getExcalidrawAPI();
+    if (!api) {
+      new Notice(t("cannotAccessView"));
+      return;
+    }
+    const runtime = getSlideshowRuntime();
+    const previous = runtime.presentations.get(view);
+    if (previous) await previous.exit();
+    const choices = resolveSlideDeckChoices(ea2);
+    const requestedSource = launch.presentationSourceKey ?? launch.presentationType ?? choices.defaultSourceKey ?? void 0;
+    const setup = resolvePresentationSetup(ea2, api, t, requestedSource);
+    if (!setup || setup.slides.length === 0) return;
+    app.workspace.setActiveLeaf(view.leaf, { focus: true });
+    const modifierDefaults = resolveLaunchModifiers(view);
+    const savedProgressType = getSlideshowProgressType(view);
+    const savedProgressSource = getSlideshowProgressSource(view);
+    const resumedSlide = launch.resume && (!savedProgressType || savedProgressType === setup.pathType) && (!savedProgressSource || savedProgressSource === setup.sourceKey) ? getSlideshowProgress(view) : void 0;
+    const initialSlide = launch.initialSlide ?? resumedSlide ?? 0;
+    const controller = new SlideshowController({
+      ea: ea2,
+      api,
+      hostView: view,
+      statusBarElement: view.ownerDocument.querySelector("div.status-bar"),
+      setup,
+      config,
+      icons: getSlideshowIcons(ea2),
+      initialSlide,
+      startFullscreen: launch.startFullscreen ?? modifierDefaults.startFullscreen,
+      ...launch.openPresenterView === void 0 ? {} : { openPresenterViewOnStart: launch.openPresenterView },
+      ...launch.presentationDisplayId === void 0 ? {} : { presentationDisplayId: launch.presentationDisplayId },
+      ...launch.presenterDisplayId === void 0 ? {} : { presenterDisplayId: launch.presenterDisplayId },
+      t,
+      onSlideChange: (slide) => setSlideshowProgress(view, slide, setup.sourceKey),
+      onExit: () => {
+        if (runtime.presentations.get(view) === controller) {
+          runtime.presentations.delete(view);
+        }
+      },
+      openSidepanel: () => openSlideshowSidepanel(context, setup.sourceKey)
+    });
+    runtime.presentations.set(view, controller);
+    setSlideshowProgress(view, initialSlide, setup.sourceKey);
+    try {
+      await controller.start();
+    } catch (error) {
+      if (runtime.presentations.get(view) === controller) {
+        runtime.presentations.delete(view);
+      }
+      throw error;
+    }
+  }
+  async function printSlideshowPresentation(context, presentationSource, event) {
+    const { ea: ea2, view, config, t } = context;
+    ea2.setView(view);
+    if (view.isDirty()) await view.forceSave(true);
+    const api = ea2.getExcalidrawAPI();
+    if (!api) {
+      new Notice(t("cannotAccessView"));
+      return;
+    }
+    const choices = resolveSlideDeckChoices(ea2);
+    const resolved = presentationSource === "line" ? choices.line : presentationSource === "frame" ? choices.frame : resolvePresentationSource(choices, presentationSource);
+    if (!resolved || resolved.deck.visibleSlides.length === 0) {
+      new Notice(t("allSlidesExcluded"));
+      return;
+    }
+    await printSlideshowToPdf({
+      event,
+      ea: ea2,
+      api,
+      slides: resolved.deck.visibleSlides.map((slide) => slide.rect),
+      printSlideWidth: config.printSlideWidth,
+      printSlideHeight: config.printSlideHeight,
+      maxZoom: config.maxZoom,
+      t
+    });
+  }
+  async function openSlideshowSidepanel(context, preferredSource, preferredSlideId) {
+    const runtime = getSlideshowRuntime();
+    await runtime.presentations.get(context.view)?.exit();
+    if (runtime.sidepanel) {
+      await runtime.sidepanel.activate(context.view, preferredSource, preferredSlideId);
+      return;
+    }
+    const existing = context.ea.checkForActiveSidepanelTabForScript();
+    if (existing) {
+      existing.close();
+    }
+    context.ea.setView(context.view);
+    const tab = await context.ea.createSidepanelTab(context.t("sidepanelTitle"), false, true);
+    if (!tab) return;
+    const sidepanel = new SlideshowSidepanel({
+      ea: context.ea,
+      tab,
+      t: context.t,
+      icons: getSlideshowIcons(context.ea),
+      config: context.config,
+      onClosed: () => {
+        if (runtime.sidepanel?.activate === handle.activate) runtime.sidepanel = null;
+      },
+      startPresentation: async (presentationSourceKey, launchOptions) => {
+        const boundView = sidepanel.getBoundView();
+        if (!boundView) return;
+        const boundContext = getSlideshowViewContext(boundView);
+        if (!boundContext) return;
+        Object.assign(boundContext.config, context.config);
+        await startSlideshowPresentation(boundContext, {
+          presentationSourceKey,
+          ...launchOptions
+        });
+      },
+      printPresentation: async (presentationSourceKey, event) => {
+        const boundView = sidepanel.getBoundView();
+        if (!boundView) return;
+        const boundContext = getSlideshowViewContext(boundView);
+        if (!boundContext) return;
+        Object.assign(boundContext.config, context.config);
+        await printSlideshowPresentation(boundContext, presentationSourceKey, event);
+      }
+    });
+    const handle = {
+      activate: async (view, source, slideId) => {
+        await sidepanel.activate(view, source, slideId);
+        tab.open();
+        sidepanel.revealRequestedSlide();
+      }
+    };
+    runtime.sidepanel = handle;
+    sidepanel.initialize();
+    await handle.activate(context.view, preferredSource, preferredSlideId);
+  }
+  async function runManualSlideshowInvocation(context) {
+    const active = getSlideshowRuntime().presentations.get(context.view);
+    const preferredSourceKey = active ? void 0 : await ensureManualSlideshowDeclaration(context);
+    const intent = resolveManualInvocationIntent(context.view.modifierKeyDown);
+    if (intent.openSidepanel) {
+      await openSlideshowSidepanel(context, preferredSourceKey);
+      return;
+    }
+    if (active) {
+      active.advance();
+      return;
+    }
+    context.ea.setView(context.view);
+    const preferences = loadSlideshowLaunchPreferences(context.ea);
+    const ownerWindow = context.view.ownerWindow;
+    const displays = context.ea.DEVICE.isMobile ? [] : getAvailableDisplays(ownerWindow);
+    const openPresenterView = !context.ea.DEVICE.isMobile && preferences.notesMode === "presenter" && displays.length > 1;
+    const launch = {
+      resume: intent.resume,
+      startFullscreen: intent.startFullscreen,
+      openPresenterView,
+      ...preferredSourceKey === void 0 ? {} : { presentationSourceKey: preferredSourceKey }
+    };
+    if (openPresenterView) {
+      const deviceKey = getSlideshowDeviceKey(ownerWindow);
+      const configurationKey = getSlideshowDisplayConfigurationKey(displays);
+      const savedDisplays = loadSlideshowDisplayPreferences(
+        context.ea,
+        deviceKey,
+        configurationKey
+      );
+      const defaults = chooseDefaultDisplayTargets(displays, getCurrentDisplayId(ownerWindow));
+      const presentationDisplayId = savedDisplays ? resolveSlideshowDisplayTarget(
+        displays,
+        savedDisplays.presentationDisplayId,
+        savedDisplays.presentationDisplayIdentity
+      ) ?? defaults.presentationDisplayId : defaults.presentationDisplayId;
+      const presenterDisplayId = savedDisplays ? resolveSlideshowDisplayTarget(
+        displays,
+        savedDisplays.presenterDisplayId,
+        savedDisplays.presenterDisplayIdentity
+      ) ?? defaults.presenterDisplayId : defaults.presenterDisplayId;
+      if (presentationDisplayId !== null) launch.presentationDisplayId = presentationDisplayId;
+      if (presenterDisplayId !== null) launch.presenterDisplayId = presenterDisplayId;
+    }
+    await startSlideshowPresentation(context, launch);
+  }
+
+  // src/scripts/slideshow/run.ts
+  async function runSlideshow(scriptEa, scriptUtils, config) {
+    const t = createSlideshowTranslator(scriptEa.obsidian.moment.locale());
+    if (!scriptEa.verifyMinimumPluginVersion("2.27.0")) {
+      new Notice(t("requiresNewerVersion"));
+      return;
+    }
+    const targetView = scriptEa.targetView;
+    if (!targetView) return;
+    const context = {
+      ea: scriptEa,
+      utils: scriptUtils,
+      view: targetView,
+      config,
+      t
+    };
+    const wasKnown = registerSlideshowViewContext(context);
+    if (!wasKnown) registerSlideshowElementActionProvider(context);
+    await scriptEa.registerAutostart(t("autostartExplanation"));
+    if (scriptUtils.executionSource !== "manual") return;
+    await runManualSlideshowInvocation(context);
+  }
+
+  // src/scripts/slideshow/main.ts
+  void runSlideshow(ea, utils, loadSlideshowConfig(ea));
+})();
 ```
 
 ---
@@ -45031,6 +53757,240 @@ ea.getElements().forEach(el=>{
 const ids = ea.getElements().map(el=>el.id);
 await ea.addElementsToView(false,true);
 ea.getExcalidrawAPI().updateContainerSize(ea.getViewElements().filter(el=>ids.contains(el.id)));
+
+```
+
+---
+
+## VoronoiDiagramGenerator.md
+<!-- Source: ea-scripts/VoronoiDiagramGenerator.md -->
+
+/*
+This script generates a Voronoi diagram from selected elements on the drawing canvas.
+
+The following parameters can be set in 'Voronoi Settings' window pop-up once the script is started:
+- Frame width (default: 100)
+- Roughness (default: 0)
+- Stroke width (default: 2)
+- Grouping (default: checked)
+
+Setting parameters could be set back to default values by click on button 'Default'.
+Check info button for howto help during applying the script.
+
+See background information about Voronoi diagram at Wikipedia : https://en.wikipedia.org/wiki/Voronoi_diagram
+
+Comments and discussion are welcomed in the Sketch-Your-Mind community: https://community.sketch-your-mind.com
+
+```js*/
+// ExcalidrawAutomate: Voronoi Diagram Generator
+ea.clear();
+
+const DEFAULTS = {
+    frameWidth: 100,
+    roughness: 0,
+    strokeWidth: 2,
+    groupVoronoi: true
+};
+
+let config = ea.getScriptSettings() || { ...DEFAULTS };
+
+// --- UI SETTINGS MODAL ---
+async function openSettings() {
+    return new Promise((resolve) => {
+        const modal = new ea.obsidian.Modal(app);
+        modal.contentEl.style.padding = "20px";
+
+        // Header container with Title and Info Button
+        const headerContainer = modal.contentEl.createDiv();
+        headerContainer.style.display = "flex";
+        headerContainer.style.justifyContent = "space-between";
+        headerContainer.style.alignItems = "center";
+        headerContainer.style.marginBottom = "20px";
+
+        headerContainer.createEl("h2", { text: "Settings - Voronoi Diagram Generator", cls: "mod-header" }).style.margin = "0";
+
+        // Info button using Obsidian's native icon
+        const btnInfo = headerContainer.createEl("button", { cls: "clickable-icon" });
+        btnInfo.setAttribute("aria-label", "Information & Help");
+        btnInfo.innerHTML = ea.obsidian.getIcon("info").outerHTML;
+
+        // Info modal content on click
+        btnInfo.onclick = () => {
+            const infoModal = new ea.obsidian.Modal(app);
+            infoModal.contentEl.style.padding = "20px";
+            infoModal.contentEl.createEl("h3", { text: "About - Voronoi Diagram Generator" });
+            
+            // Native Obsidian Icon as HTML string
+            const chatIcon = ea.obsidian.getIcon("message-square").outerHTML;
+            
+            const p = infoModal.contentEl.createEl("p");
+            p.innerHTML = `
+                This script generates a Voronoi diagram from selected elements on the drawing canvas.<br><br>
+                <h4 style="margin: 5px 0 5px 0; font-size: 1.1em;">HowTo & Parameters:</h4>
+                <div line-height: 1.4;">
+					<div style="margin-bottom: 10px;">1. <b>Select</b> at least 2 elements on your canvas.</div>
+	                <div style="margin-bottom: 4px;">2. <b>Run</b> the script and adjust your settings:</div>
+	                <div style="margin: 2px 0 10px 15px; line-height: 1.2;">
+		                - <b>Frame width:</b> Spacing around the diagram.<br>
+		                - <b>Roughness:</b> Hand-drawn effect (0-3).<br>
+		                - <b>Stroke width:</b> Line thickness.<br>
+		                - <b>Grouping:</b> Group generated cells together.<br>
+		            </div>
+	                <div style="margin-bottom: 15px;">3. Click <b>OK</b> to generate.</div>
+			   </div><br>
+               <span style="display: inline-flex; align-items: center; gap: 6px; vertical-align: middle;"> ${chatIcon} Feedback & chat: <a href="https://community.sketch-your-mind.com" target="_blank">Sketch Your Mind Community</a>
+                </span>
+            `;
+            infoModal.open();
+        };
+        
+        const inputs = {};
+
+        // Helper function to create input rows
+        const createInput = (label, key, type = "number") => {
+            const container = modal.contentEl.createDiv();
+            container.style.marginBottom = "15px";
+            
+            container.createEl("label", { text: label });
+            const input = container.createEl("input", { type: type });
+            input.style.display = "block";
+            input.style.marginTop = "5px";
+            input.value = config[key];
+            input.onchange = (e) => config[key] = type === "number" ? Number(e.target.value) : e.target.checked;
+            inputs[key] = input;
+        };
+
+        createInput("Frame width:", "frameWidth");
+        createInput("Roughness (0-3):", "roughness");
+        createInput("Stroke width:", "strokeWidth");
+
+        const checkContainer = modal.contentEl.createDiv();
+        checkContainer.style.marginBottom = "25px";
+        checkContainer.createEl("label", { text: "Grouping: " });
+        inputs.groupVoronoi = checkContainer.createEl("input", { type: "checkbox" });
+        inputs.groupVoronoi.checked = config.groupVoronoi;
+        inputs.groupVoronoi.onchange = (e) => config.groupVoronoi = e.target.checked;
+
+        // Button container
+        const btnContainer = modal.contentEl.createDiv();
+        btnContainer.style.display = "flex";
+        btnContainer.style.gap = "10px";
+        btnContainer.style.justifyContent = "flex-end";
+
+        const btnDefault = btnContainer.createEl("button", { text: "Default" });
+        const btnOk = btnContainer.createEl("button", { text: "OK" });
+
+        btnDefault.onclick = () => {
+            config = { ...DEFAULTS };
+            inputs.frameWidth.value = config.frameWidth;
+            inputs.roughness.value = config.roughness;
+            inputs.strokeWidth.value = config.strokeWidth;
+            inputs.groupVoronoi.checked = config.groupVoronoi;
+            new Notice("Settings reset to default");
+        };
+
+        btnOk.onclick = () => {
+            ea.setScriptSettings(config);
+            modal.close();
+            resolve(true);
+        };
+
+        modal.open();
+    });
+}
+
+// Wait for user to configure settings
+const proceed = await openSettings();
+if (!proceed) return;
+
+// --- ALGORITHM & EXECUTION ---
+const els = ea.getViewSelectedElements();
+
+if (els.length < 2) {
+    new Notice("Please select at least two items!");
+    return;
+}
+
+const seeds = els.map(el => ({ x: el.x + el.width / 2, y: el.y + el.height / 2 }));
+
+if (seeds.length < 2) { 
+    new Notice("Please select at least two items!"); 
+    return; 
+}
+
+const minX = Math.min(...seeds.map(s => s.x)) - config.frameWidth;
+const minY = Math.min(...seeds.map(s => s.y)) - config.frameWidth;
+const maxX = Math.max(...seeds.map(s => s.x)) + config.frameWidth;
+const maxY = Math.max(...seeds.map(s => s.y)) + config.frameWidth;
+
+const bbox = [
+    { x: minX, y: minY }, 
+    { x: maxX, y: minY }, 
+    { x: maxX, y: maxY }, 
+    { x: minX, y: maxY }
+];
+
+function clipPolygon(poly, p1, p2) {
+    const mid = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+    const n = { x: p2.x - p1.x, y: p2.y - p1.y };
+    const isInside = (p) => (p.x - mid.x) * n.x + (p.y - mid.y) * n.y <= 0;
+    
+    const intersect = (a, b) => {
+        const num = (a.x - mid.x) * n.x + (a.y - mid.y) * n.y;
+        const den = (b.x - a.x) * n.x + (b.y - a.y) * n.y;
+        if (den === 0) return null;
+        const t = -num / den;
+        return { x: a.x + t * (b.x - a.x), y: a.y + t * (b.y - a.y) };
+    };
+
+    const result = [];
+    for (let i = 0; i < poly.length; i++) {
+        const cur = poly[i];
+        const prev = poly[(i - 1 + poly.length) % poly.length];
+        const curIn = isInside(cur);
+        const prevIn = isInside(prev);
+
+        if (curIn !== prevIn) { 
+            const ix = intersect(prev, cur); 
+            if (ix) result.push(ix); 
+        }
+        if (curIn) result.push(cur);
+    }
+    return result;
+}
+
+const polygons = seeds.map((s, i) => {
+    let poly = [...bbox];
+    seeds.forEach((_, j) => { 
+        if (i !== j) poly = clipPolygon(poly, seeds[i], seeds[j]); 
+    });
+    return poly;
+});
+
+ea.style.roughness = config.roughness;
+ea.style.strokeWidth = config.strokeWidth;
+ea.style.backgroundColor = "transparent";
+
+const ids = [];
+
+for (const poly of polygons) {
+    if (poly.length < 3) continue;
+    const points = poly.map(p => [p.x, p.y]);
+    points.push(points[0]);
+    ids.push(ea.addLine(points));
+}
+
+if (config.groupVoronoi && ids.length > 0) {
+    ea.addToGroup(ids);
+}
+
+await ea.addElementsToView(false, false);
+
+// Clear selection so nothing remains selected on the canvas
+const view = app.workspace.activeLeaf.view; if (view && view.excalidrawAPI) { view.excalidrawAPI.updateScene({ appState: { selectedElementIds: {} } }); }
+
+new Notice("Voronoi diagram created!");
+
 ```
 
 ---
@@ -45053,12 +54013,13 @@ https://zsviczian.github.io/obsidian-excalidraw-plugin/ExcalidrawScriptsEngine.h
 elements = ea.getViewSelectedElements();
 api = ea.getExcalidrawAPI();
 api.zoomToFit(elements,10);
+
 ```
 ---
 
 # Excalidraw Startup Script
 
-ExcalidrawStartup Script can be configured in Plugin Settings under 'Excalidraw Automate'. When defined this script runs automatically when the Excalidraw plugin is loaded to Obsidian. The user can add automation tasks here that they want to run on every startup of Excalidraw in Obsidian such as defining Excalidraw event handlers (also known as hooks).
+ExcalidrawStartup Script can be configured in Plugin Settings under 'Excalidraw Automate'. When defined this script runs once per Excalidraw plugin load using the plugin-global EA and `utils.executionSource === "plugin-startup"`. Use `ea.registerCleanup()` for external listeners, timers, observers, or subscriptions that must be released when Excalidraw unloads. The user can add automation tasks here that they want to run on every startup of Excalidraw in Obsidian such as defining Excalidraw event handlers (also known as hooks).
 
 Two files follow. First the template startup script with documenation comments, then an actual startup script example with implemented functionality.
 
@@ -45066,6 +54027,17 @@ Two files follow. First the template startup script with documenation comments, 
 /*
 #exclude
 ```js*/
+/**
+ * Startup scripts receive the plugin-global EA for the plugin lifetime and
+ * utils.executionSource === "plugin-startup". Register cleanup for resources
+ * outside EA so plugin reload/unload cannot accumulate them.
+ */
+// const ref = app.workspace.on("file-open", (file) => {});
+// ea.registerCleanup(() => app.workspace.offref(ref));
+//
+// const interval = window.setInterval(() => {}, 1000);
+// ea.registerCleanup(() => window.clearInterval(interval));
+
 /**
  * If set, this callback is triggered when the user closes an Excalidraw view.
  *   onViewUnloadHook: (view: ExcalidrawView) => void = null;

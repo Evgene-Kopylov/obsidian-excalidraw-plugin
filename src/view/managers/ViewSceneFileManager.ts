@@ -1,4 +1,10 @@
-import type { FileId } from "@zsviczian/excalidraw/types/element/src/types";
+import type {
+  ExcalidrawImageElement,
+  FileId,
+} from "@zsviczian/excalidraw/types/element/src/types";
+import type {
+  ExcalidrawImperativeAPI,
+} from "@zsviczian/excalidraw/types/excalidraw/types";
 
 import type {
   DeferredCacheValidation,
@@ -6,6 +12,15 @@ import type {
 } from "../../shared/EmbeddedFileLoader";
 import type { FileData } from "../../types/embeddedFileLoaderTypes";
 import type ExcalidrawView from "../ExcalidrawView";
+import {
+  createMarkdownImageRenderCacheEntry,
+  resolveMarkdownImageRenderSettings,
+  type MarkdownImageRenderCacheEntry,
+} from "../../utils/markdownImageUtils";
+import {
+  MARKDOWN_IMAGE_CUSTOM_DATA_KEY,
+  type MarkdownImageCustomData,
+} from "../../types/markdownImageTypes";
 
 /** Runtime dependencies supplied by the composition root to avoid adding a
  * circular import.
@@ -22,6 +37,63 @@ export interface ViewSceneFileManagerDependencies {
   createEmbeddedFilesLoader: (isDark?: boolean) => EmbeddedFilesLoader;
   addFiles: typeof import("../ExcalidrawView").addFiles;
 }
+
+/** Waits for two frames in the current view window, with a bounded fallback. */
+export const waitForWindowPaint = (
+  getOwnerWindow: () => Window,
+): Promise<void> =>
+  new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      window.clearTimeout(fallbackTimer);
+      resolve();
+    };
+    const fallbackTimer = window.setTimeout(finish, 250);
+
+    try {
+      const ownerWindow = getOwnerWindow();
+      ownerWindow.requestAnimationFrame(() => {
+        ownerWindow.requestAnimationFrame(finish);
+      });
+    } catch {
+      finish();
+    }
+  });
+
+/** Returns image file IDs intersecting the view's current scene viewport. */
+export const getVisibleImageFileIds = (
+  view: ExcalidrawView,
+): Set<FileId> => {
+  const visibleFileIds = new Set<FileId>();
+  const appState = view.excalidrawAPI?.getAppState();
+  if (!appState) {
+    return visibleFileIds;
+  }
+
+  const zoom = appState.zoom.value;
+  const left = -appState.scrollX;
+  const top = -appState.scrollY;
+  const right = left + appState.width / zoom;
+  const bottom = top + appState.height / zoom;
+  for (const element of view.getViewElements()) {
+    if (
+      element.type === "image" &&
+      !element.isDeleted &&
+      element.fileId &&
+      element.x + element.width >= left &&
+      element.y + element.height >= top &&
+      element.x <= right &&
+      element.y <= bottom
+    ) {
+      visibleFileIds.add(element.fileId);
+    }
+  }
+  return visibleFileIds;
+};
 
 /**
  * Owns the embedded-file loading pipeline (RefactorPlan.md Phase 6,
@@ -59,11 +131,57 @@ export class ViewSceneFileManager {
     FileId,
     DeferredCacheValidation
   >();
+  private readonly markdownImageRenderCache = new Map<
+    FileId,
+    MarkdownImageRenderCacheEntry
+  >();
 
   public constructor(
     private readonly view: ExcalidrawView,
     private readonly dependencies: ViewSceneFileManagerDependencies,
   ) {}
+
+  /** Records a Markdown image already rendered by an editor or conversion. */
+  public rememberMarkdownImageRender(
+    element: ExcalidrawImageElement,
+    markdown: string,
+    sourceFilePath: string,
+  ): void {
+    const customData = element.customData?.[
+      MARKDOWN_IMAGE_CUSTOM_DATA_KEY
+    ] as MarkdownImageCustomData | undefined;
+    if (!customData) {
+      return;
+    }
+    const render = resolveMarkdownImageRenderSettings(
+      this.view.plugin.settings.markdownImageSettings.defaults,
+      customData.render,
+    );
+    this.markdownImageRenderCache.set(
+      element.fileId,
+      createMarkdownImageRenderCacheEntry(
+        markdown,
+        sourceFilePath,
+        customData,
+        render,
+      ),
+    );
+  }
+
+  private isRuntimeCurrent(
+    api: ExcalidrawImperativeAPI,
+    filePath: string | null,
+  ): boolean {
+    // A replacement view can open the same file while callbacks from the
+    // source window are still queued, so file identity alone is insufficient.
+    return (
+      this.view.excalidrawAPI === api &&
+      !api.isDestroyed &&
+      !this.view.semaphores?.windowMigrating &&
+      !this.view.semaphores?.viewunload &&
+      (this.view.file?.path ?? null) === filePath
+    );
+  }
 
   /** Terminates any in-flight loaders and cancels deferred validation. Called
    * from `ExcalidrawView.onClose()`, `onunload()`, and `clear()`. */
@@ -112,11 +230,15 @@ export class ViewSceneFileManager {
     emitPolicy: "changed-only" | "all" = "changed-only",
   ) {
     this.cancelDeferredSceneFileValidation();
+    const api = this.view.excalidrawAPI;
     if (
       !candidates ||
       candidates.size === 0 ||
       !this.view.file ||
-      !this.view.excalidrawAPI
+      !api ||
+      api.isDestroyed ||
+      this.view.semaphores?.windowMigrating ||
+      this.view.semaphores?.viewunload
     ) {
       return;
     }
@@ -127,11 +249,9 @@ export class ViewSceneFileManager {
     this.deferredValidationFilePath = currentFile;
     this.deferredValidationTimer = window.setTimeout(() => {
       this.deferredValidationTimer = null;
-      if (
-        !this.view.file ||
-        !this.view.excalidrawAPI ||
-        this.view.file.path !== currentFile
-      ) {
+      if (!this.isRuntimeCurrent(api, currentFile)) {
+        loader.terminate = true;
+        loader.emptyPDFDocsMap();
         this.deferredValidationFilePath = null;
         return;
       }
@@ -147,12 +267,10 @@ export class ViewSceneFileManager {
           isDark: boolean,
           final: boolean = true,
         ) => {
-          if (
-            !this.view.file ||
-            !this.view.excalidrawAPI ||
-            this.view.file.path !== currentFile
-          ) {
-            if (final && this.deferredValidationLoader === loader) {
+          if (!this.isRuntimeCurrent(api, currentFile)) {
+            loader.terminate = true;
+            loader.emptyPDFDocsMap();
+            if (this.deferredValidationLoader === loader) {
               this.deferredValidationLoader = null;
               this.deferredValidationFilePath = null;
             }
@@ -188,6 +306,10 @@ export class ViewSceneFileManager {
         deferredCacheValidation: candidates,
         validationConcurrency: 1,
         emitPolicy,
+        markdownImageRenderCache: this.markdownImageRenderCache,
+        loadedMarkdownImageFileIds: new Set(
+          Object.keys(api.getFiles()) as FileId[],
+        ),
       });
     }, 250);
   }
@@ -197,7 +319,15 @@ export class ViewSceneFileManager {
     isThemeChange: boolean = false,
     forceEmitFromCache: boolean = false,
   ) {
-    if (!this.view.excalidrawAPI || !fileIDs || fileIDs.size === 0) {
+    const api = this.view.excalidrawAPI;
+    if (
+      !api ||
+      api.isDestroyed ||
+      this.view.semaphores?.windowMigrating ||
+      this.view.semaphores?.viewunload ||
+      !fileIDs ||
+      fileIDs.size === 0
+    ) {
       return;
     }
     if (this.activeLoader) {
@@ -229,11 +359,19 @@ export class ViewSceneFileManager {
     callback?: () => void,
     forceReloadFileIDs?: Set<FileId>,
   ) {
-    if (!this.view.excalidrawAPI) {
+    const requestAPI = this.view.excalidrawAPI;
+    if (
+      !requestAPI ||
+      requestAPI.isDestroyed ||
+      this.view.semaphores?.windowMigrating ||
+      this.view.semaphores?.viewunload
+    ) {
       return;
     }
 
     const requestFilePath = this.view.file?.path ?? null;
+    const requestIsCurrent = () =>
+      this.isRuntimeCurrent(requestAPI, requestFilePath);
     const deferredValidationForSameFile =
       !!requestFilePath &&
       this.deferredValidationFilePath === requestFilePath &&
@@ -259,8 +397,20 @@ export class ViewSceneFileManager {
     const loader = this.dependencies.createEmbeddedFilesLoader();
 
     const runLoader = (l: EmbeddedFilesLoader) => {
+      if (!requestIsCurrent()) {
+        l.terminate = true;
+        l.emptyPDFDocsMap();
+        if (this.activeLoader === l) {
+          this.activeLoader = null;
+        }
+        if (this.nextLoader === l) {
+          this.nextLoader = null;
+        }
+        return;
+      }
       this.nextLoader = null;
       this.activeLoader = l;
+      const prioritizedFileIds = getVisibleImageFileIds(this.view);
       void l.loadSceneFiles({
         excalidrawData: this.view.excalidrawData,
         sceneElements: this.view.getViewElements(),
@@ -269,11 +419,19 @@ export class ViewSceneFileManager {
           isDark: boolean,
           final: boolean = true,
         ) => {
+          if (!requestIsCurrent()) {
+            l.terminate = true;
+            l.emptyPDFDocsMap();
+            if (this.activeLoader === l) {
+              this.activeLoader = null;
+            }
+            if (this.nextLoader === l) {
+              this.nextLoader = null;
+            }
+            return;
+          }
           if (callback && final) {
             callback();
-          }
-          if (!this.view.file || !this.view.excalidrawAPI) {
-            return; //The view was closed in the mean time
           }
           if (files && files.length > 0) {
             void this.dependencies.addFiles(files, this.view, isDark);
@@ -282,9 +440,12 @@ export class ViewSceneFileManager {
             return;
           }
           this.view.lastSceneLoadTime = Date.now();
-          this.activeLoader = null;
+          if (this.activeLoader === l) {
+            this.activeLoader = null;
+          }
           if (this.nextLoader) {
-            runLoader(this.nextLoader);
+            const nextLoader = this.nextLoader;
+            runLoader(nextLoader);
           } else {
             // Once the scene is painted, validate cached candidates in the background
             // so unchanged cache hits do not delay the initial scene load.
@@ -292,39 +453,54 @@ export class ViewSceneFileManager {
               this.scheduleDeferredSceneFileValidation(
                 new Map(this.pendingDeferredValidationCandidates),
                 isThemeChange,
+                "changed-only",
               );
               this.pendingDeferredValidationCandidates.clear();
             }
             //in case one or more files have not loaded retry later hoping that sync has delivered the file in the mean time.
-            this.view.excalidrawData.getFiles().some((ef) => {
-              if (ef && !ef.file && ef.attemptCounter < 30) {
-                const currentFile = this.view.file.path;
-                const retryLoadSceneFiles = () => {
-                  if (
-                    !this ||
-                    !this.view.excalidrawAPI ||
-                    currentFile !== this.view.file.path
-                  ) {
-                    return;
-                  }
-                  // Keep deferred validation uninterrupted. If it is running,
-                  // retry again once it completes.
-                  if (
-                    this.deferredValidationLoader ||
-                    this.deferredValidationTimer
-                  ) {
-                    window.setTimeout(retryLoadSceneFiles, 500);
-                    return;
-                  }
-                  void this.loadSceneFiles();
-                };
-                window.setTimeout(() => {
-                  retryLoadSceneFiles();
-                }, 2000);
-                return true;
-              }
-              return false;
-            });
+            const retryCandidates = Array.from(
+              this.view.excalidrawData.getFileEntries(),
+            ).filter(
+              ([, embeddedFile]) =>
+                embeddedFile &&
+                !embeddedFile.file &&
+                !embeddedFile.isHyperLink &&
+                !embeddedFile.isLocalLink &&
+                embeddedFile.attemptCounter < 30,
+            );
+            if (retryCandidates.length > 0) {
+              const retryFileIDs = new Set(
+                retryCandidates.map(([fileId]) => fileId),
+              );
+              const currentFile = this.view.file.path;
+              const retryLoadSceneFiles = () => {
+                if (
+                  !this ||
+                  !requestIsCurrent() ||
+                  currentFile !== this.view.file.path
+                ) {
+                  return;
+                }
+                // Keep deferred validation uninterrupted. If it is running,
+                // retry again once it completes.
+                if (
+                  this.deferredValidationLoader ||
+                  this.deferredValidationTimer
+                ) {
+                  window.setTimeout(retryLoadSceneFiles, 500);
+                  return;
+                }
+                void this.loadSceneFiles(
+                  false,
+                  retryFileIDs,
+                  undefined,
+                  undefined,
+                );
+              };
+              window.setTimeout(() => {
+                retryLoadSceneFiles();
+              }, 2000);
+            }
           }
         },
         depth: 0,
@@ -335,6 +511,13 @@ export class ViewSceneFileManager {
         onDeferredValidationCandidates: (candidates) => {
           this.addDeferredValidationCandidates(candidates);
         },
+        waitForRender: () =>
+          waitForWindowPaint(() => this.view.ownerWindow ?? window),
+        prioritizedFileIds,
+        markdownImageRenderCache: this.markdownImageRenderCache,
+        loadedMarkdownImageFileIds: new Set(
+          Object.keys(requestAPI.getFiles()) as FileId[],
+        ),
       });
     };
     if (!this.activeLoader) {

@@ -62,6 +62,7 @@ import {
 import {
   //debug,
   getImageSize,
+  getPNG,
   isMaskFile,
   wrapTextAtCharLength,
   arrayToMap,
@@ -88,6 +89,7 @@ import {
 } from "@zsviczian/excalidraw/types/excalidraw/types";
 import { EmbeddedFile, EmbeddedFilesLoader } from "./EmbeddedFileLoader";
 import { tex2dataURL } from "./LaTeX";
+import type { MathJaxRenderOptions } from "src/types/mathJaxTypes";
 import {
   LatexSuitePlugin,
   MultiOptionConfirmationPrompt,
@@ -154,10 +156,15 @@ import { log } from "../utils/debugHelper";
 import { GlobalPoint } from "@zsviczian/excalidraw/types/math/src/types";
 import {
   AddImageOptions,
+  ElementsInAreaOptions,
   ImageInfo,
   KeyBlocker,
+  SceneArea,
   ScriptSettingValue,
   SVGColorInfo,
+  ViewImageExportOptions,
+  ViewPNGExportOptions,
+  ViewSVGExportOptions,
 } from "src/types/excalidrawAutomateTypes";
 import {
   _measureText,
@@ -205,9 +212,12 @@ import {
   PDFPageProperties,
   ExportSettings,
 } from "src/types/exportUtilTypes";
-import { FrameRenderingOptions, PaneTarget } from "src/types/utilTypes";
+import { PaneTarget } from "src/types/utilTypes";
 import { CaptureUpdateAction } from "src/constants/constants";
-import { AutoexportConfig } from "src/types/excalidrawViewTypes";
+import {
+  AutoexportConfig,
+  ExcalidrawViewScene,
+} from "src/types/excalidrawViewTypes";
 import { FloatingModal } from "./Dialogs/FloatingModal";
 import { ExcalidrawSidepanelView } from "src/view/sidepanel/Sidepanel";
 import { ExcalidrawSidepanelTab } from "src/view/sidepanel/SidepanelTab";
@@ -219,6 +229,12 @@ import { getPDFCropRect } from "src/utils/PDFUtils";
 import type { SelectedElementMenuAction } from "src/types/elementActionTypes";
 import { CaptureUpdateActionType } from "@zsviczian/excalidraw/types/element/src";
 import { URL_REGISTRY, URLs } from "src/constants/safeUrls";
+import {
+  createExportAreaAnchor,
+  getElementsIntersectionArea as selectElementsIntersectionArea,
+  normalizeSceneArea,
+} from "src/utils/excalidrawElementUtils";
+import { cropPNGBlob } from "src/utils/imageExportUtils";
 
 type ExcalidrawAutomateHelpTarget = ((...args: unknown[]) => unknown) | string;
 
@@ -245,10 +261,12 @@ const GAP = 4;
 /**
  * ExcalidrawAutomate is a utility class that provides a simplified API to interact with Excalidraw elements and the Excalidraw canvas.
  * Elements in the Excalidraw Scene are immutable. You should never directly change element properties in the scene object.
- * ExcalidrawAutomate provides a "workbench" where you can create, modify, and delete elements before committing them to the Excalidraw Scene.
- * The basic workflow is to create elements in ExcalidrawAutomate and once ready commit them to the Excalidraw Scene using addElementsToView().
- * To modify elements in the scene, you should first copy them over to EA using copyViewElementsToEAforEditing, make the necessary modifications,
- * then commit them back to the scene using addElementsToView().
+ * ExcalidrawAutomate provides a stateful, in-memory "workbench" where you can create, modify, and delete elements independently of the Excalidraw Scene.
+ * Begin each independent transaction with clear(). To modify existing scene elements while preserving their identity, copy them to the workbench with
+ * copyViewElementsToEAforEditing() and modify the copies returned by getElement(originalId). Commit persistent edits with addElementsToView(),
+ * or use the modified workbench elements for a temporary EA operation such as export and then discard them with clear() without committing.
+ * cloneElement() and cloneElements() deliberately generate new IDs and are only for creating genuine duplicates, never for editing an existing scene element.
+ * Do not interleave asynchronous operations that mutate the same EA workbench; await the operation, then clear before starting another transaction.
  * To delete an element from the view set element.isDeleted = true and commit the changes to the scene using addElementsToView().
  *
  * At a very high level, EA has 3 type of functions:
@@ -841,11 +859,44 @@ export class ExcalidrawAutomate {
   };
   colorPalette: object;
   sidepanelTab: ExcalidrawSidepanelTab | null = null;
+  private cleanupCallbacks: Array<{ callback: () => void }> = [];
+  private destroyed = false;
 
   constructor(plugin: ExcalidrawPlugin, view?: ExcalidrawView) {
     this.plugin = plugin;
     this.reset();
     this.targetView = view;
+  }
+
+  /**
+   * Registers synchronous cleanup owned by this EA instance. Use this for
+   * external listeners, observers, timers, and subscriptions that EA cannot
+   * release itself. Cleanup runs when this EA is destroyed.
+   * @param cleanup - Synchronous cleanup callback.
+   * @returns A function that unregisters this callback without running it.
+   */
+  public registerCleanup(cleanup: () => void): () => void {
+    if (typeof cleanup !== "function") {
+      errorMessage("cleanup must be a function", "registerCleanup()");
+      return () => undefined;
+    }
+    if (this.destroyed) {
+      try {
+        cleanup();
+      } catch (error: unknown) {
+        log("ExcalidrawAutomate cleanup failed", error);
+      }
+      return () => undefined;
+    }
+
+    const registration = { callback: cleanup };
+    this.cleanupCallbacks.push(registration);
+    return () => {
+      const index = this.cleanupCallbacks.indexOf(registration);
+      if (index !== -1) {
+        this.cleanupCallbacks.splice(index, 1);
+      }
+    };
   }
 
   /**
@@ -887,6 +938,18 @@ export class ExcalidrawAutomate {
     persist: boolean = false,
     reveal: boolean = true,
   ): Promise<ExcalidrawSidepanelTab | null> {
+    const existingSidepanel = ExcalidrawSidepanelView.getExisting(false);
+    if (
+      persist &&
+      this.activeScript &&
+      this.plugin?.scriptEngine?.isViewAutostartExecution(this) &&
+      existingSidepanel?.hasPersistentScript(this.activeScript) &&
+      existingSidepanel.getTabByScript(this.activeScript)
+    ) {
+      log(
+        `Warning: script "${this.activeScript}" attempted to create an already-active persistent sidepanel during view autostart. Consider branching on utils.executionSource === "view-autostart".`,
+      );
+    }
     if (this.sidepanelTab) {
       this.sidepanelTab.close();
     }
@@ -1660,79 +1723,162 @@ export class ExcalidrawAutomate {
     await exportToPDF({ SVG, scale, pageProps, filename });
   }
 
-  /**
-   * Creates an SVG representation of the current view.
-   *
-   * @param {Object} options - The options for creating the SVG.
-   * @param {boolean} [options.withBackground=true] - Whether to include the background in the SVG.
-   * @param {"light" | "dark"} [options.theme] - The theme to use for the SVG.
-   * @param {FrameRenderingOptions} [options.frameRendering={enabled: true, name: true, outline: true, clip: true}] - The frame rendering options.
-   * @param {number} [options.padding] - The padding to apply around the SVG.
-   * @param {boolean} [options.selectedOnly=false] - Whether to include only the selected elements in the SVG.
-   * @param {boolean} [options.skipInliningFonts=false] - Whether to skip inlining fonts in the SVG.
-   * @param {boolean} [options.embedScene=false] - Whether to embed the scene in the SVG.
-   * @param {ExcalidrawElement[]} [options.elementsOverride] - Optional override for the elements to include in the SVG. Primary to support the Printable Layout Wizard script
-   * @returns {Promise<SVGSVGElement>} A promise that resolves to the SVG element.
-   */
-  async createViewSVG({
-    withBackground = true,
-    theme,
-    frameRendering = { enabled: true, name: true, outline: true, clip: true },
-    padding,
-    selectedOnly = false,
-    skipInliningFonts = false,
-    embedScene = false,
-    elementsOverride,
-  }: {
-    withBackground?: boolean;
-    theme?: "light" | "dark";
-    frameRendering?: FrameRenderingOptions;
-    padding?: number;
-    selectedOnly?: boolean;
-    skipInliningFonts?: boolean;
-    embedScene?: boolean;
-    elementsOverride?: ExcalidrawElement[];
-  }): Promise<SVGSVGElement> {
+  private prepareViewImageExport(
+    options: ViewImageExportOptions,
+  ): {
+    scene: ExcalidrawViewScene;
+    exportSettings: ExportSettings;
+    padding: number;
+    sourceFile: TFile;
+    ownerDocument: Document;
+    exportArea?: SceneArea;
+    exportBounds?: ReturnType<typeof getCommonBoundingBox>;
+  } | null {
     if (!this.targetView || !this.targetView.file || !this.targetView._loaded) {
       log("No view loaded");
-      return;
+      return null;
     }
     const view = this.targetView;
-    const scene = this.targetView.getScene(selectedOnly);
+    const scene = this.targetView.getScene(options.selectedOnly ?? false);
+    let elements: readonly ExcalidrawElement[] = scene.elements;
+    let files = scene.files;
+    let exportArea: SceneArea | undefined;
+    let exportBounds: ReturnType<typeof getCommonBoundingBox> | undefined;
 
-    if (elementsOverride) {
-      scene.elements = elementsOverride.filter(
-        (el): el is NonDeletedExcalidrawElement => !el.isDeleted,
+    if (options.elementsOverride) {
+      elements = options.elementsOverride;
+    }
+    elements = elements.filter(
+      (el): el is NonDeletedExcalidrawElement => !el.isDeleted,
+    );
+
+    if (options.exportArea) {
+      exportArea = normalizeSceneArea(
+        options.exportArea,
+        options.exportArea.margin,
       );
+      elements = selectElementsIntersectionArea(elements, exportArea, {
+        includeMarkerFrames: options.exportArea.includeMarkerFrames,
+        includeBoundElements:
+          options.exportArea.includeBoundElements ?? true,
+      });
+      const referencedFileIds = new Set(
+        elements
+          .filter(
+            (element): element is ExcalidrawImageElement =>
+              element.type === "image" && Boolean(element.fileId),
+          )
+          .map((element) => element.fileId),
+      );
+      files = Object.fromEntries(
+        Object.entries(scene.files).filter(([fileId]) =>
+          referencedFileIds.has(fileId as FileId),
+        ),
+      );
+      elements = [...elements, createExportAreaAnchor(exportArea)];
+      exportBounds = getCommonBoundingBox(elements);
     }
 
     if (!view.getViewExportIncludeInternalLinks()) {
-      scene.elements = sceneRemoveInternalLinks(scene);
+      elements = sceneRemoveInternalLinks({ elements });
     }
 
-    const exportSettings: ExportSettings = {
-      withBackground: view.getViewExportWithBackground(withBackground),
-      withTheme: true,
-      isMask: isMaskFile(this.plugin, view.file),
-      skipInliningFonts,
-      frameRendering,
-    };
-
-    return await getSVG(
-      {
+    const theme = view.getViewExportTheme(options.theme) as "dark" | "light";
+    return {
+      scene: {
         ...scene,
-        ...{
-          appState: {
-            ...scene.appState,
-            theme: view.getViewExportTheme(theme) as "dark" | "light",
-            exportEmbedScene: view.getViewExportEmbedScene(embedScene),
-          },
+        elements,
+        files,
+        appState: {
+          ...scene.appState,
+          theme,
+          exportEmbedScene: view.getViewExportEmbedScene(options.embedScene),
         },
       },
-      exportSettings,
-      view.getViewExportPadding(padding),
-      view.file,
+      exportSettings: {
+        withBackground: view.getViewExportWithBackground(
+          options.withBackground ?? true,
+        ),
+        withTheme: true,
+        isMask: isMaskFile(this.plugin, view.file),
+        frameRendering:
+          options.frameRendering ??
+          ({ enabled: true, name: true, outline: true, clip: true } as const),
+      },
+      padding: view.getViewExportPadding(options.padding),
+      sourceFile: view.file,
+      ownerDocument: view.ownerDocument,
+      exportArea,
+      exportBounds,
+    };
+  }
+
+  /**
+   * Creates an SVG representation of the current view.
+   *
+   * @param options - View export options. `elementsOverride`, when supplied, is
+   * a complete replacement rather than a patch. `exportArea` filters that
+   * candidate set and anchors the result to an exact scene rectangle.
+   * @returns A promise resolving to the exported SVG, or `undefined` when no
+   * loaded target view is available.
+   */
+  async createViewSVG(
+    options: ViewSVGExportOptions = {},
+  ): Promise<SVGSVGElement> {
+    const prepared = this.prepareViewImageExport(options);
+    if (!prepared) return;
+    prepared.exportSettings.skipInliningFonts =
+      options.skipInliningFonts ?? false;
+    const svg = await getSVG(
+      prepared.scene,
+      prepared.exportSettings,
+      prepared.padding,
+      prepared.sourceFile,
     );
+    if (svg && prepared.exportArea && prepared.exportBounds) {
+      const originalViewBox = svg.viewBox.baseVal;
+      const exportScale = originalViewBox.width
+        ? Number(svg.getAttribute("width")) / originalViewBox.width
+        : 1;
+      const width = prepared.exportArea.width + prepared.padding * 2;
+      const height = prepared.exportArea.height + prepared.padding * 2;
+      svg.setAttribute(
+        "viewBox",
+        `${prepared.exportArea.x - prepared.exportBounds.minX} ${prepared.exportArea.y - prepared.exportBounds.minY} ${width} ${height}`,
+      );
+      svg.setAttribute("width", `${width * exportScale}`);
+      svg.setAttribute("height", `${height * exportScale}`);
+    }
+    return svg;
+  }
+
+  /**
+   * Creates a PNG representation of the current view without using or mutating
+   * the EA workbench.
+   *
+   * @param options - View export options. `elementsOverride`, when supplied, is
+   * a complete replacement rather than a patch. `exportArea` filters that
+   * candidate set and anchors the result to an exact scene rectangle.
+   * @returns A promise resolving to a PNG blob, or `undefined` when no loaded
+   * target view is available.
+   */
+  async createViewPNG(options: ViewPNGExportOptions = {}): Promise<Blob> {
+    const prepared = this.prepareViewImageExport(options);
+    if (!prepared) return;
+    const png = await getPNG(
+      prepared.scene,
+      prepared.exportSettings,
+      prepared.padding,
+      options.scale ?? 1,
+    );
+    if (!png || !prepared.exportArea || !prepared.exportBounds) return png;
+    const scale = options.scale ?? 1;
+    return await cropPNGBlob(png, {
+      x: (prepared.exportArea.x - prepared.exportBounds.minX) * scale,
+      y: (prepared.exportArea.y - prepared.exportBounds.minY) * scale,
+      width: (prepared.exportArea.width + prepared.padding * 2) * scale,
+      height: (prepared.exportArea.height + prepared.padding * 2) * scale,
+    });
   }
 
   /**
@@ -2842,6 +2988,7 @@ export class ExcalidrawAutomate {
    * @param {string} tex - The LaTeX equation string.
    * @param {number} [scaleX=1] - The x-scaling factor (post mathjax creation)
    * @param {number} [scaleY=1] - The y-scaling factor (post mathjax creation)
+   * @param {MathJaxRenderOptions} [options] - MathJax rendering options. Set `throwOnError` to propagate invalid LaTeX errors.
    * @returns {Promise<string>} Promise resolving to the ID of the added LaTeX image element.
    */
   async addLaTex(
@@ -2850,12 +2997,13 @@ export class ExcalidrawAutomate {
     tex: string,
     scaleX: number = 1,
     scaleY: number = 1,
+    options?: MathJaxRenderOptions,
   ): Promise<string> {
     if (!tex || !scaleX || !scaleY) {
       return null;
     }
     const id = nanoid();
-    const image = await tex2dataURL(tex, 4, this.plugin);
+    const image = await tex2dataURL(tex, 4, this.plugin, options);
     if (!image) {
       return null;
     }
@@ -2889,11 +3037,13 @@ export class ExcalidrawAutomate {
    * Returns the base64 dataURL of the LaTeX equation rendered as an SVG.
    * @param {string} tex - The LaTeX equation string.
    * @param {number} [scale=4] - The scale factor for the image.
+   * @param {MathJaxRenderOptions} [options] - MathJax rendering options. Set `throwOnError` to propagate invalid LaTeX errors.
    * @returns {Promise<{mimeType: MimeType; fileId: FileId; dataURL: DataURL; created: number; size: { height: number; width: number };}>} Promise resolving to the LaTeX image data.
    */
   async tex2dataURL(
     tex: string,
     scale: number = 4, // Default scale value, adjust as needed
+    options?: MathJaxRenderOptions,
   ): Promise<{
     mimeType: MimeType;
     fileId: FileId;
@@ -2901,7 +3051,7 @@ export class ExcalidrawAutomate {
     created: number;
     size: { height: number; width: number };
   }> {
-    return await tex2dataURL(tex, scale, this.plugin);
+    return await tex2dataURL(tex, scale, this.plugin, options);
   }
 
   /**
@@ -3084,7 +3234,9 @@ export class ExcalidrawAutomate {
   }
 
   /**
-   * Clears elementsDict and imagesDict only.
+   * Clears the EA workbench (`elementsDict` and `imagesDict`) without changing
+   * the scene, target view, or current style. Call this before each independent
+   * workbench transaction and before repurposing an EA instance.
    */
   clear(): void {
     this.elementsDict = {};
@@ -3131,7 +3283,7 @@ export class ExcalidrawAutomate {
     return this.plugin.isExcalidrawFile(f);
   }
 
-  targetView: ExcalidrawView = null; //the view currently edited
+  targetView: ExcalidrawView | null = null; //the view currently edited
   /**
    * Sets the target view for EA. All view operations and all access to the Excalidraw API
    * will be performed on this view.
@@ -3139,12 +3291,15 @@ export class ExcalidrawAutomate {
    * Typical usage:
    * - `setView()` to pick a sensible default automatically
    * - `setView(excalidrawView)` to explicitly target a specific view
+   * - `setView(null)` to explicitly clear `targetView`
    *
    * Selectors:
-   * - If `view` is `null` or `undefined` (or `"auto"`), EA will pick a sensible default:
+   * - If `view` is `undefined` (or `"auto"`), EA will pick a sensible default:
    *   1) the currently active Excalidraw view (if any),
    *   2) otherwise the last active Excalidraw view (if it is still available),
    *   3) otherwise the `"first"` Excalidraw view in the workspace.
+   * - If `view` is explicitly `null`, EA clears `targetView`. This is useful for
+   *   sidepanels when focus moves to a Markdown view or no drawing is eligible.
    * - If `show` is `true`, the view will be revealed (brought to front) and focused.
    *
    * Deprecated selectors (kept for backward compatibility):
@@ -3156,18 +3311,22 @@ export class ExcalidrawAutomate {
    *   necessarily match what a user would consider the “first”/“leftmost”/“topmost” view;
    *   from a user's perspective it may appear effectively random.**
    *
-   * @param {ExcalidrawView | "auto" | "first" | "active" | null | undefined} [view] - The view (or selector) to set as target.
+   * @param {ExcalidrawView | "auto" | "first" | "active" | null | undefined} [view] - The view or selector to set as target. Pass `null` to clear the target.
    * @param {boolean} [show=false] - Whether to reveal/focus the target view.
-   * @returns {ExcalidrawView} The ExcalidrawView that was set as `targetView` (or `null` if none found).
+   * @returns {ExcalidrawView | null} The ExcalidrawView that was set as `targetView`, or `null` when cleared or none was found.
    */
   setView(
     view?: ExcalidrawView | "auto" | "first" | "active" | null,
     show: boolean = false,
-  ): ExcalidrawView {
+  ): ExcalidrawView | null {
     const app = this.plugin.app;
     const workspace = app.workspace;
     const setView = () => {
-      if (!view || view === "auto") {
+      if (view === null) {
+        this.targetView = null;
+        return;
+      }
+      if (view === undefined || view === "auto") {
         view = workspace.getActiveViewOfType(ExcalidrawView);
         if (view instanceof ExcalidrawView) {
           this.targetView = view;
@@ -3406,7 +3565,12 @@ export class ExcalidrawAutomate {
     if (fileIDWhiteList.size > 0) {
       this.targetView.setDirty();
       await new Promise<void>((resolve) => {
-        void this.targetView.loadSceneFiles(false, fileIDWhiteList, resolve);
+        void this.targetView.loadSceneFiles(
+          false,
+          fileIDWhiteList,
+          resolve,
+          undefined,
+        );
       });
     }
   }
@@ -3567,12 +3731,15 @@ export class ExcalidrawAutomate {
   }
 
   /**
-   * Copies elements from the view to elementsDict for editing.
+   * Copies existing scene elements to the workbench as mutable, identity-preserving copies.
+   * The copies can be committed with `addElementsToView()` to update the original
+   * scene elements, or used temporarily by another EA operation and discarded with
+   * `clear()` without modifying the scene.
    * @param {ExcalidrawElement[]} elements - Array of elements to copy.
    * @param {boolean} [copyImages=false] - Whether to copy images as well.
    */
   copyViewElementsToEAforEditing(
-    elements: ExcalidrawElement[],
+    elements: readonly ExcalidrawElement[],
     copyImages: boolean = false,
   ): void {
     if (copyImages && elements.some((el) => el.type === "image")) {
@@ -3854,7 +4021,9 @@ export class ExcalidrawAutomate {
    * `getActions` is called with the currently selected element whenever the
    * selection, element type, fileId, or customData changes, and should
    * return the buttons to show for that element (an empty array shows
-   * nothing). Registration is tied to the current view: it is automatically
+   * nothing). The menu is temporarily hidden while the selected frame's
+   * title is being edited, so custom actions do not obstruct the title editor.
+   * Registration is tied to the current view: it is automatically
    * cleared when the view closes, and cleared for this script specifically
    * if the script's file is deleted while the view is still open. Calling
    * this a second time for the same script in the same view (e.g. running
@@ -3924,11 +4093,14 @@ export class ExcalidrawAutomate {
    * A fresh "allow" also immediately re-runs the script in every other
    * currently-open Excalidraw view, so it attaches everywhere right away
    * instead of only the next time each view is opened.
+   * @param {string} [message] - Optional script-provided explanation displayed as the second paragraph of the permission prompt.
    * @returns "allow" if the script is permitted to autostart, "deny" if
    * the user has denied it, or "pending" if there is no active script or
    * the user has not yet made a decision.
    */
-  public async registerAutostart(): Promise<"allow" | "deny" | "pending"> {
+  public async registerAutostart(
+    message?: string,
+  ): Promise<"allow" | "deny" | "pending"> {
     const scriptName = this.activeScript;
     if (!scriptName) {
       errorMessage("no active script", "registerAutostart()");
@@ -3944,13 +4116,15 @@ export class ExcalidrawAutomate {
     if (state === "allow" || state === "deny") {
       return state;
     }
+    const explanation = message?.trim();
     const prompt = new MultiOptionConfirmationPrompt<
       "allow" | "deny" | "pending" | null
     >(
       this.plugin,
-      `<b>${scriptName}</b> ${t("AUTOSTART_SCRIPT_PROMPT")}<br><br>` +
-        `<span style="color: var(--text-muted); font-size: var(--font-smaller);">` +
-        `${t("AUTOSTART_SCRIPT_PROMPT_MANAGE_HINT")}</span>`,
+      `<p><b>${scriptName}</b> ${t("AUTOSTART_SCRIPT_PROMPT")}</p>` +
+        (explanation ? `<p>${explanation}</p>` : "") +
+        `<p><span style="color: var(--text-muted); font-size: var(--font-smaller);">` +
+        `${t("AUTOSTART_SCRIPT_PROMPT_MANAGE_HINT")}</span></p>`,
       new Map([
         [t("AUTOSTART_SCRIPT_ALLOW"), "allow"],
         [t("AUTOSTART_SCRIPT_DENY"), "deny"],
@@ -4268,36 +4442,39 @@ export class ExcalidrawAutomate {
   }
 
   /**
-   * Gets the elements within a specific area.
-   * @param elements - The elements to check.
-   * @param param1 - The area to check against.
-   * @returns The elements within the area.
+   * Gets elements whose rendered bounds intersect a scene area.
+   *
+   * @param elements - Elements to test, in scene stacking order.
+   * @param area - Rectangle or element defining the scene area.
+   * @param options - Optional margin, marker-frame, and binding expansion rules.
+   * @returns Intersecting elements in their original stacking order.
    */
   getElementsInArea(
     elements: readonly ExcalidrawElement[],
-    element: ExcalidrawElement,
+    area: SceneArea,
+    options: ElementsInAreaOptions = {},
   ): ExcalidrawElement[] {
-    const { x, y, width, height, id } = element;
-    return elements.filter((el) => {
-      if (el.type === "frame" && el.frameRole === "marker") {
-        return false;
-      }
-      if (el.id === id) {
-        return true;
-      }
-      const { topX, topY, width: w, height: h } = this.getBoundingBox([el]);
-      const elLeft = topX;
-      const elTop = topY;
-      const elRight = topX + w;
-      const elBottom = topY + h;
-      // overlap exists if rectangles intersect
-      return !(
-        elLeft >= x + width ||
-        elRight <= x ||
-        elTop >= y + height ||
-        elBottom <= y
-      );
-    });
+    return this.getElementsIntersectionArea(elements, area, options);
+  }
+
+  /**
+   * Gets elements whose rendered bounds intersect a scene area.
+   *
+   * @remarks
+   * This explicit name is preferred for new code. `getElementsInArea()` remains
+   * available as a backward-compatible alias and uses the same implementation.
+   *
+   * @param elements - Elements to test, in scene stacking order.
+   * @param area - Rectangle or element defining the scene area.
+   * @param options - Optional margin, marker-frame, and binding expansion rules.
+   * @returns Intersecting elements in their original stacking order.
+   */
+  getElementsIntersectionArea(
+    elements: readonly ExcalidrawElement[],
+    area: SceneArea,
+    options: ElementsInAreaOptions = {},
+  ): ExcalidrawElement[] {
+    return selectElementsIntersectionArea(elements, area, options);
   }
 
   /**
@@ -4711,7 +4888,10 @@ export class ExcalidrawAutomate {
   }
 
   /**
-   * Clones the specified element with a new ID.
+   * Clones the specified element with a new ID for insertion as a genuine duplicate.
+   * Do not use this to edit an existing scene element; use
+   * `copyViewElementsToEAforEditing()` and retrieve the workbench copy by its
+   * original ID instead.
    * @param {ExcalidrawElement} element - The element to clone.
    * @returns {ExcalidrawElement} The cloned element with a new ID.
    */
@@ -5105,9 +5285,23 @@ export class ExcalidrawAutomate {
   }
 
   /**
-   * Destroys the ExcalidrawAutomate instance, clearing all references and data.
+   * Destroys this EA once, first releasing registered external resources and
+   * then clearing the ordinary EA state and references.
    */
   destroy(): void {
+    if (this.destroyed) {
+      return;
+    }
+    this.destroyed = true;
+    const cleanups = this.cleanupCallbacks.reverse();
+    this.cleanupCallbacks = [];
+    cleanups.forEach(({ callback }) => {
+      try {
+        callback();
+      } catch (error: unknown) {
+        log("ExcalidrawAutomate cleanup failed", error);
+      }
+    });
     this.sidepanelTab?.close();
     this.targetView = null;
     this.plugin = null;

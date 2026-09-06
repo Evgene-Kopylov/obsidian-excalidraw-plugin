@@ -167,7 +167,7 @@ class MarkdownImageEditorController {
   private editorChangeRef: EventRef | null = null;
   private selectionGeneration = 0;
   private initializing = false;
-  private lastObservedSelectionId: string | null = null;
+  private lastObservedMarkdownImageId: string | null = null;
   private editorFocusHost: HTMLElement | null = null;
   private editorFocusInHandler: (() => void) | null = null;
   private editorFocusOutHandler: ((event: FocusEvent) => void) | null = null;
@@ -254,7 +254,7 @@ class MarkdownImageEditorController {
       }
 
       this.element = element;
-      this.lastObservedSelectionId = element.id;
+      this.lastObservedMarkdownImageId = element.id;
       this.renderSettings = getMarkdownImageRenderSettings(
         this.view.plugin,
         element,
@@ -944,7 +944,7 @@ class MarkdownImageEditorController {
         }
         this.element = null;
         this.renderSettings = null;
-        this.lastObservedSelectionId = null;
+        this.lastObservedMarkdownImageId = null;
         this.renderOwnerUnavailablePlaceholder();
       }
     })();
@@ -988,7 +988,7 @@ class MarkdownImageEditorController {
     view: ExcalidrawView,
     elements?: readonly ExcalidrawElement[],
     selectedElementIds?: Record<string, boolean>,
-  ): { element?: ExcalidrawImageElement; selectedId: string | null } {
+  ): ExcalidrawImageElement | undefined {
     const ids =
       selectedElementIds ??
       view.excalidrawAPI?.getAppState().selectedElementIds ??
@@ -1000,13 +1000,9 @@ class MarkdownImageEditorController {
           (element) => element.id === selectedId,
         )
       : undefined;
-    return {
-      element:
-        selected?.type === "image" && isMarkdownImageElement(view, selected)
-          ? selected
-          : undefined,
-      selectedId,
-    };
+    return selected?.type === "image" && isMarkdownImageElement(view, selected)
+      ? selected
+      : undefined;
   }
 
   private async attachToView(
@@ -1050,17 +1046,17 @@ class MarkdownImageEditorController {
     this.ownerInvalidation = null;
     this.tab.setDisabled(false);
 
-    const selection = this.getSelectedMarkdownImage(
+    const selectedMarkdownImage = this.getSelectedMarkdownImage(
       nextView,
       elements,
       selectedElementIds,
     );
-    this.element = selection.element ?? null;
-    this.lastObservedSelectionId = selection.selectedId;
-    this.renderSettings = selection.element
-      ? getMarkdownImageRenderSettings(this.plugin, selection.element)
+    this.element = selectedMarkdownImage ?? null;
+    this.lastObservedMarkdownImageId = selectedMarkdownImage?.id ?? null;
+    this.renderSettings = selectedMarkdownImage
+      ? getMarkdownImageRenderSettings(this.plugin, selectedMarkdownImage)
       : null;
-    if (selection.element) {
+    if (selectedMarkdownImage) {
       nextView.setMarkdownImageEditorIsEditing();
     }
     this.renderPanel();
@@ -1456,10 +1452,6 @@ class MarkdownImageEditorController {
       (id) => selectedElementIds[id],
     );
     const selectedId = selectedIds.length === 1 ? selectedIds[0] : null;
-    if (selectedId === this.lastObservedSelectionId) {
-      return;
-    }
-    this.lastObservedSelectionId = selectedId;
     const selected =
       selectedId
         ? elements.find((element) => element.id === selectedId)
@@ -1468,6 +1460,11 @@ class MarkdownImageEditorController {
       selected?.type === "image" && isMarkdownImageElement(sourceView, selected)
         ? selected
         : undefined;
+    const nextMarkdownImageId = next?.id ?? null;
+    if (nextMarkdownImageId === this.lastObservedMarkdownImageId) {
+      return;
+    }
+    this.lastObservedMarkdownImageId = nextMarkdownImageId;
     const generation = ++this.selectionGeneration;
     this.selectionSwitchQueue = this.selectionSwitchQueue
       .catch(() => {
@@ -1535,18 +1532,26 @@ class MarkdownImageEditorController {
   }
 
   /**
-   * Flushes the current editor's content into excalidrawData and force-persists it to disk.
+   * Flushes changed editor content into excalidrawData and force-persists it to disk.
    * Shared by switchElement() (selection changes within this controller) and
    * flushPendingEditsBeforeHandoff() (handoff to a brand new controller in
    * openMarkdownImageEditor()) so a previous element's edits are always guaranteed to be flushed
-   * and saved before anything else starts editing a different element.
+   * and saved before anything else starts editing a different element. A clean selection switch
+   * only detaches the old editor: saving and reloading it would needlessly reload every scene image.
    */
   private async flushCurrentElement(): Promise<void> {
-    await this.renderCurrentEditor();
+    const hasPendingContentChanges = this.editorContentDirty;
+    const hasPendingRender =
+      this.renderTimer !== null || this.editorRenderPromise !== null;
+    if (hasPendingContentChanges || hasPendingRender) {
+      await this.renderCurrentEditor(!hasPendingContentChanges);
+    }
     this.cancelScheduledRender();
     this.removeEditorFocusListener();
-    await this.flushAndDetachEditor();
-    await this.persistOwnerAfterEditorFlush();
+    await this.flushAndDetachEditor(hasPendingContentChanges);
+    if (hasPendingContentChanges) {
+      await this.persistOwnerAfterEditorFlush();
+    }
     this.cancelScheduledRender();
   }
 
@@ -1844,7 +1849,7 @@ class MarkdownImageEditorController {
     }
 
     // Pre-emptively route commands and update Obsidian's active editor state.
-    // This ensures the mobile toolbar sees the correct state the exact moment 
+    // This ensures the mobile toolbar sees the correct state the exact moment
     // the virtual keyboard starts opening, fixing the "first tap" bug.
     this.activateEditorCommandRouting(editorView);
 

@@ -349,7 +349,7 @@ export class EventManager {
     this.previouslyActiveLeaf = leaf;
 
     if (newActiveviewEV) {
-      this.plugin.addModalContainerObserver();
+      this.plugin.addModalContainerObserver(newActiveviewEV);
       this.plugin.lastActiveExcalidrawFilePath = newActiveviewEV.file?.path;
     } else {
       this.plugin.removeModalContainerObserver();
@@ -397,7 +397,7 @@ export class EventManager {
             getChangedTopLevelDependencyFileIDs(newActiveviewEV);
           if (changedDependencyFileIDs.size > 0) {
             // Reload only top-level embeds whose own file changed or whose
-            // dependency tree contains a newer nested Excalidraw file.
+            // dependency tree contains a newer nested visual source.
             newActiveviewEV.scheduleSceneFileDeferredValidation(
               changedDependencyFileIDs,
               false,
