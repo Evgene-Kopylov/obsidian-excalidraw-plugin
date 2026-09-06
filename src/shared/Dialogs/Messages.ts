@@ -19,14 +19,23 @@ I build this plugin as a labor of love. Curious about the philosophy behind it? 
 `,
 "2.27.3": `
 ## Fixed and updated
-- Excalidraw Automate scripts can now opt into strict LaTeX validation with \`{ throwOnError: true }\` in \`addLaTex()\` and \`tex2dataURL()\`, allowing scripts such as ExcaliMath to catch and display MathJax errors. Requires Excalidraw Extras 0.1.0. [#2](${URLs.GITHUB_COM_ZSVICZIAN_OBSIDIAN_EXCALIDRAW_EXTRAS_ISSUES}/2)
-- Slideshow script now supports better slide sorter, setting slide titles and some other UX improvements.
-- Local Markdown images copied between drawings now retain their back-of-note text, render after reopening, and no longer trigger repeated deletion confirmations.
-- You can now toggle whether deleting a local Markdown image keeps or deletes its back-of-note text, and reset the choice in plugin settings.
-- Converting local Markdown images to embeddables and back now preserves last-minute edits without duplicate elements, malformed back-of-note content, or recursive drawing images. The Markdown image sidepanel also follows the converted element correctly.
-- Markdown image appearance settings are now preserved when converting an image to an embeddable and back.
-- Unchanged Markdown images now keep their already-rendered image during scene reloads, avoiding flicker and unnecessary rendering work.
-- External Markdown image sources are checked when a drawing regains focus and when validating cached nested drawings. A new command refreshes the selected image, or every image when none or multiple are selected.
+- Fixed slow vault startup when the Excalidraw Sidepanel was left open when closing Obsidian.
+- Markdown Images
+  - Local Markdown images copied between drawings now always retain their back-of-note text, render correctly after reopening, and no longer trigger repeated deletion confirmations.
+  - You can now set the default behavior for back-of-the-note text when deleting a local Markdown image. You can change or reset this choice in plugin settings.
+  - Converting local Markdown images to embeddables and back:
+    - Works more reliably during rapid edits. The Markdown image sidepanel also correctly follows the converted element.
+    - Image appearance settings are now preserved when converting an image to an embeddable and back.
+  - Unchanged Markdown images now retain their already-rendered image during scene reloads, avoiding flicker and unnecessary rendering.
+  - External Markdown image sources are now checked when a drawing regains focus and when validating cached nested drawings.
+- New command panel action: *"Refresh selected image or all images in the current drawing"*. This invalidates the image cache and regenerates the selected image or all images in the current drawing.
+
+## New
+- Slideshow script now includes an improved slide sorter, support for setting slide titles, and other UX improvements.
+- The Deconstruct selected elements script now checks for invalid characters in file names and allows deconstructed items to be saved directly in the vault root folder.
+
+## New in Excalidraw Automate
+- Excalidraw Automate scripts can now opt into strict LaTeX validation with \`{ throwOnError: true }\` in \`addLaTex()\` and \`tex2dataURL()\`. This allows scripts such as ExcaliMath to catch and display MathJax errors. Requires Excalidraw Extras 0.1.0. [#2](${URLs.GITHUB_COM_ZSVICZIAN_OBSIDIAN_EXCALIDRAW_EXTRAS_ISSUES}/2)
 `,
 "2.27.2": `
 ## Fixed
