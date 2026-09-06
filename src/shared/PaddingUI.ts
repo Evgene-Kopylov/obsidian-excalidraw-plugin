@@ -588,6 +588,13 @@ export const wrapWithPaddingPopup = (
     for (let s = 50; s <= 500; s += 50) STEPS.push(s);
     for (let s = 600; s <= 1000; s += 100) STEPS.push(s);
     for (let s = 1200; s <= 2000; s += 200) STEPS.push(s);
+    // Include the current default padding so returning to it removes the
+    // `,padding=` parameter instead of writing it explicitly.
+    const defaultPad = plugin.settings.exportPaddingSVG;
+    if (!STEPS.includes(defaultPad)) {
+      STEPS.push(defaultPad);
+      STEPS.sort((a, b) => a - b);
+    }
 
     const valueToStep = (v: number) => {
       let best = STEPS[0];
