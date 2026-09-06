@@ -2253,6 +2253,32 @@ export class CommandManager {
     });
 
     this.addCommand({
+      id: "refresh-scene-images",
+      name: t("REFRESH_SCENE_IMAGES"),
+      checkCallback: (checking: boolean) => {
+        const view = this.app.workspace.getActiveViewOfType(ExcalidrawView);
+        const images = view
+          ?.getViewElements()
+          .filter((element) => element.type === "image");
+        if (!view?.excalidrawAPI || !images?.length) {
+          return false;
+        }
+        if (!checking) {
+          const selected = view.getViewSelectedElements();
+          const targets: ExcalidrawImageElement[] =
+            selected.length === 1 && selected[0].type === "image"
+              ? [selected[0]]
+              : images;
+          const fileIDs = new Set(
+            targets.map((element) => element.fileId),
+          );
+          void view.loadSceneFiles(false, fileIDs, undefined, fileIDs);
+        }
+        return true;
+      },
+    });
+
+    this.addCommand({
       id: "insert-image",
       name: t("INSERT_IMAGE"),
       checkCallback: (checking: boolean) => {

@@ -70,7 +70,7 @@ export function containsReservedMarkdownImageMarker(
 
 /** Reads the feature metadata from an image element without modifying it. */
 export function getMarkdownImageCustomData(
-  element: ExcalidrawImageElement,
+  element: ExcalidrawElement,
 ): MarkdownImageCustomData | undefined {
   const value: unknown = element.customData?.[MARKDOWN_IMAGE_CUSTOM_DATA_KEY];
   return value && typeof value === "object"
@@ -81,7 +81,7 @@ export function getMarkdownImageCustomData(
 /** Resolves the element appearance, then the configured defaults. */
 export function getMarkdownImageRenderSettings(
   plugin: ExcalidrawPlugin,
-  element?: ExcalidrawImageElement,
+  element?: ExcalidrawElement,
 ): MarkdownImageRenderSettings {
   const stored = element ? getMarkdownImageCustomData(element)?.render : null;
   const fallback = plugin.settings.markdownImageSettings.defaults;
@@ -308,7 +308,7 @@ export async function convertEmbeddableElementToMarkdownImage(
   element: ExcalidrawEmbeddableElement,
   sourceData: MarkdownImageSourceData,
 ): Promise<boolean> {
-  const render = getMarkdownImageRenderSettings(view.plugin);
+  const render = getMarkdownImageRenderSettings(view.plugin, element);
   render.width = Math.max(50, Math.round(element.width));
   const sourceFile = sourceData.embeddedFile?.file ?? view.file;
   const rendered = await renderMarkdown(
@@ -384,7 +384,6 @@ export async function convertMarkdownImageElementToEmbeddable(
   delete editable.status;
   delete editable.crop;
   addAppendUpdateCustomData(editable, {
-    [MARKDOWN_IMAGE_CUSTOM_DATA_KEY]: undefined,
     mdProps: view.plugin.settings.embeddableMarkdownDefaults,
   });
   if (!(await commitElements(ea))) {

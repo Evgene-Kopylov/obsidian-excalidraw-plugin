@@ -130,6 +130,7 @@ export type DeferredCacheValidation =
 
 type LoadImageOptions = {
   cacheValidation?: CacheValidationMode;
+  bypassCache?: boolean;
   onStaleCacheHit?: (validation: DeferredCacheValidation) => void;
   deferUncachedExcalidraw?: boolean;
   onExcalidrawGenerationDeferred?: () => void;
@@ -786,6 +787,7 @@ export class EmbeddedFilesLoader {
     hasSVGwithBitmap,
     elements = [],
     cacheValidation = "validated",
+    bypassCache = false,
     onStaleCacheHit,
     deferUncachedGeneration = false,
   }: {
@@ -796,6 +798,7 @@ export class EmbeddedFilesLoader {
     hasSVGwithBitmap: boolean;
     elements?: ExcalidrawElement[];
     cacheValidation?: CacheValidationMode;
+    bypassCache?: boolean;
     onStaleCacheHit?: (validation: DeferredCacheValidation) => void;
     deferUncachedGeneration?: boolean;
   }): Promise<{
@@ -826,6 +829,7 @@ export class EmbeddedFilesLoader {
       inFile instanceof EmbeddedFile ? inFile.colorMap : null,
     );
     const shouldUseCache =
+      !bypassCache &&
       !hasColorMap &&
       this.plugin.settings.allowImageCacheInScene &&
       file &&
@@ -1119,6 +1123,7 @@ export class EmbeddedFilesLoader {
           inFile,
           hasSVGwithBitmap,
           cacheValidation: options?.cacheValidation,
+          bypassCache: options?.bypassCache,
           onStaleCacheHit: options?.onStaleCacheHit,
           deferUncachedGeneration: options?.deferUncachedExcalidraw,
         });
@@ -1422,6 +1427,7 @@ export class EmbeddedFilesLoader {
               let excalidrawGenerationDeferred = false;
               const data = await loader._getObsidianImage(embeddedFile, depth, {
                 cacheValidation,
+                bypassCache: shouldForceReload,
                 fileId: id,
                 deferUncachedExcalidraw,
                 onExcalidrawGenerationDeferred: () => {
@@ -1961,6 +1967,7 @@ export class EmbeddedFilesLoader {
       const pageNum = isNaN(linkParts.page) ? 1 : (linkParts.page ?? 1);
       const requestedScale = this.plugin.settings.pdfScale;
       const shouldUseCache =
+        !options?.bypassCache &&
         getImageCache().isReady() &&
         (!options || this.plugin.settings.allowImageCacheInScene);
       const cacheKey: ImageKey = {

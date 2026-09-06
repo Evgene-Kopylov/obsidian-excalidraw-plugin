@@ -157,7 +157,7 @@ const executeCommandLinkWithConfirmation = async (cmd: string, app: App) => {
 
 /**
  * Returns the set of top-level embedded-file IDs that need to be rebuilt on
- * leaf switch because either the file itself or any nested Excalidraw dependency
+ * leaf switch because either the file itself or any nested visual dependency
  * was modified since the view last completed a scene load.
  */
 export function getChangedTopLevelDependencyFileIDs(
@@ -177,7 +177,7 @@ export function getChangedTopLevelDependencyFileIDs(
 
   for (const [fileId, embeddedFile] of view.excalidrawData.getFileEntries()) {
     const embeddedTarget = embeddedFile?.file;
-    if (!embeddedTarget || embeddedFile.mtime === 0) {
+    if (!embeddedTarget) {
       continue;
     }
 
@@ -186,7 +186,7 @@ export function getChangedTopLevelDependencyFileIDs(
       changedFileIDs.add(fileId);
     }
 
-    // Track Excalidraw embeds so we can walk their nested deps below.
+    // Track Excalidraw embeds so nested changes can be mapped back to them.
     if (plugin.isExcalidrawFile(embeddedTarget)) {
       const set =
         excalidrawFileIdsByPath.get(embeddedTarget.path) ?? new Set<FileId>();
@@ -199,10 +199,10 @@ export function getChangedTopLevelDependencyFileIDs(
     return changedFileIDs;
   }
 
-  // Walk the full nested dependency tree of the root drawing.
+  // Walk the full nested visual-dependency tree of the root drawing.
   // If any nested file changed since lastLoadTime, mark all top-level embeds
   // that include it (identified via path[1]) as needing a rebuild.
-  const nestedTree = getAllNestedExcalidrawFiles(plugin, view.file, false);
+  const nestedTree = getAllNestedExcalidrawFiles(plugin, view.file, true);
   for (const [file, node] of nestedTree.entries()) {
     if (file.stat.mtime <= lastLoadTime) {
       continue;

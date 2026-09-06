@@ -755,7 +755,9 @@ export const hasExcalidrawEmbeddedImagesTreeChanged = (
     return false;
   }
 
-  const nestedTree = getAllNestedExcalidrawFiles(plugin, sourceFile, false);
+  // Include ordinary vault files because they may be Markdown-image sources
+  // nested inside an otherwise unchanged Excalidraw drawing.
+  const nestedTree = getAllNestedExcalidrawFiles(plugin, sourceFile, true);
   for (const file of nestedTree.keys()) {
     if (file.stat.mtime > mtime) {
       return true;
